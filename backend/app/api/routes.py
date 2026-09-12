@@ -1,5 +1,6 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.ai import ExplanationCollection, explain_insights
 from app.analysis import DatasetAnalysis, analyze_dataset
 from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
@@ -62,6 +63,21 @@ def get_insights(dataset_id: str) -> InsightCollection:
     charts = build_charts(stored.frame, stored.profile, analysis)
     quality = check_dataset_quality(stored.frame, stored.profile)
     return build_insights(stored.profile, analysis, quality, charts.charts)
+
+
+@router.get("/datasets/{dataset_id}/explanations", response_model=ExplanationCollection)
+def get_explanations(dataset_id: str) -> ExplanationCollection:
+    """Plain-language readings of the findings, fetched separately.
+
+    The dashboard renders without this, so a slow or missing model never holds up
+    the numbers.
+    """
+    stored = _require_dataset(dataset_id)
+    analysis = analyze_dataset(stored.frame, stored.profile)
+    charts = build_charts(stored.frame, stored.profile, analysis)
+    quality = check_dataset_quality(stored.frame, stored.profile)
+    insights = build_insights(stored.profile, analysis, quality, charts.charts)
+    return explain_insights(stored.profile, insights.insights)
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)

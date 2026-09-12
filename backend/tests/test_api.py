@@ -86,3 +86,19 @@ def test_insights_endpoint_returns_structured_findings():
 
 def test_insights_for_an_unknown_dataset_return_404():
     assert client.get("/api/datasets/does-not-exist/insights").status_code == 404
+
+
+def test_explanations_endpoint_degrades_without_a_key():
+    dataset_id = client.post(
+        "/api/upload", files={"file": ("segments.csv", STRUCTURED_CSV, "text/csv")}
+    ).json()["dataset_id"]
+
+    body = client.get(f"/api/datasets/{dataset_id}/explanations").json()
+
+    assert body["available"] is False
+    assert body["explanations"] == []
+    assert "key" in body["reason"]
+
+
+def test_explanations_for_an_unknown_dataset_return_404():
+    assert client.get("/api/datasets/does-not-exist/explanations").status_code == 404
