@@ -22,6 +22,11 @@
   --severity-warning: #eda100;
   --severity-info: #7b7a75;
 
+  --score-good: #1baf7a;
+  --score-fair: #eda100;
+  --score-poor: #e34948;
+  --score-track: #e3e2dd;
+
   --diverging-low: #2a78d6;
   --diverging-mid: #f0efec;
   --diverging-high: #e34948;
@@ -62,6 +67,11 @@
   --severity-serious: #e66767;
   --severity-warning: #c98500;
   --severity-info: #96958d;
+
+  --score-good: #199e70;
+  --score-fair: #c98500;
+  --score-poor: #e66767;
+  --score-track: #333330;
 
   --diverging-low: #3987e5;
   --diverging-mid: #383835;

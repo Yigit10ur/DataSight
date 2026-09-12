@@ -45,8 +45,39 @@ export type QualityIssue = {
   metrics: Record<string, unknown>;
 };
 
+export type DimensionName =
+  | "completeness"
+  | "consistency"
+  | "duplicates"
+  | "outliers"
+  | "type_consistency";
+
+export type ScoreContribution = {
+  columns: string[];
+  issue_ids: string[];
+  share: number;
+};
+
+export type QualityDimension = {
+  name: DimensionName;
+  label: string;
+  score: number;
+  weight: number;
+  observed: number;
+  tolerance: number;
+  applicable: boolean;
+  contributions: ScoreContribution[];
+};
+
+export type QualityScore = {
+  dataset_id: string;
+  score: number;
+  dimensions: QualityDimension[];
+};
+
 export type QualityReport = {
   dataset_id: string;
+  score: QualityScore;
   issues: QualityIssue[];
 };
 

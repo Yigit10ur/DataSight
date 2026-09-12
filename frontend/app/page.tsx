@@ -7,6 +7,7 @@ import { ColumnTable } from "@/components/ColumnTable";
 import { PreviewTable } from "@/components/PreviewTable";
 import { ProfileOverview } from "@/components/ProfileOverview";
 import { QualityIssues } from "@/components/QualityIssues";
+import { QualityScore } from "@/components/QualityScore";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
@@ -18,6 +19,7 @@ import {
   type DatasetPreview,
   type DatasetProfile,
   type QualityIssue,
+  type QualityScore as Score,
 } from "@/lib/api";
 
 export default function Home() {
@@ -25,6 +27,7 @@ export default function Home() {
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
   const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [issues, setIssues] = useState<QualityIssue[]>([]);
+  const [score, setScore] = useState<Score | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,12 +45,14 @@ export default function Home() {
       setPreview(previewed);
       setCharts(charted.charts);
       setIssues(quality.issues);
+      setScore(quality.score);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Upload failed.");
       setProfile(null);
       setPreview(null);
       setCharts([]);
       setIssues([]);
+      setScore(null);
     } finally {
       setIsUploading(false);
     }
@@ -79,6 +84,7 @@ export default function Home() {
             <span className="font-medium text-[var(--foreground)]">{profile.filename}</span>
           </div>
           <ProfileOverview profile={profile} />
+          {score && <QualityScore score={score} />}
           <QualityIssues issues={issues} />
           <ChartGrid charts={charts} />
           <ColumnTable columns={profile.column_schemas} />
