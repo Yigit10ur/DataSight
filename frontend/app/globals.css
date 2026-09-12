@@ -16,6 +16,9 @@
   --type-empty: #7b7a75;
 
   --flag-warning: #b45309;
+  --severity-serious: #e34948;
+  --severity-warning: #eda100;
+  --severity-info: #7b7a75;
 
   --diverging-low: #2a78d6;
   --diverging-mid: #f0efec;
@@ -48,6 +51,9 @@
     --type-empty: #96958d;
 
     --flag-warning: #eda100;
+    --severity-serious: #e66767;
+    --severity-warning: #c98500;
+    --severity-info: #96958d;
 
     --diverging-low: #3987e5;
     --diverging-mid: #383835;

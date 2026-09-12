@@ -6,20 +6,24 @@ import { ChartGrid } from "@/components/ChartGrid";
 import { ColumnTable } from "@/components/ColumnTable";
 import { PreviewTable } from "@/components/PreviewTable";
 import { ProfileOverview } from "@/components/ProfileOverview";
+import { QualityIssues } from "@/components/QualityIssues";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
   fetchCharts,
   fetchPreview,
+  fetchQuality,
   uploadDataset,
   type ChartSpec,
   type DatasetPreview,
   type DatasetProfile,
+  type QualityIssue,
 } from "@/lib/api";
 
 export default function Home() {
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
   const [charts, setCharts] = useState<ChartSpec[]>([]);
+  const [issues, setIssues] = useState<QualityIssue[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,17 +33,20 @@ export default function Home() {
     try {
       const uploaded = await uploadDataset(file);
       setProfile(uploaded);
-      const [previewed, charted] = await Promise.all([
+      const [previewed, charted, quality] = await Promise.all([
         fetchPreview(uploaded.dataset_id),
         fetchCharts(uploaded.dataset_id),
+        fetchQuality(uploaded.dataset_id),
       ]);
       setPreview(previewed);
       setCharts(charted.charts);
+      setIssues(quality.issues);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Upload failed.");
       setProfile(null);
       setPreview(null);
       setCharts([]);
+      setIssues([]);
     } finally {
       setIsUploading(false);
     }
@@ -68,6 +75,7 @@ export default function Home() {
             <span className="font-medium text-[var(--foreground)]">{profile.filename}</span>
           </div>
           <ProfileOverview profile={profile} />
+          <QualityIssues issues={issues} />
           <ChartGrid charts={charts} />
           <ColumnTable columns={profile.column_schemas} />
           {preview && <PreviewTable preview={preview} />}

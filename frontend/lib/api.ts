@@ -34,6 +34,22 @@ export type DatasetPreview = {
   total_rows: number;
 };
 
+export type Severity = "serious" | "warning" | "info";
+
+export type QualityIssue = {
+  id: string;
+  issue_type: string;
+  severity: Severity;
+  columns: string[];
+  message: string;
+  metrics: Record<string, unknown>;
+};
+
+export type QualityReport = {
+  dataset_id: string;
+  issues: QualityIssue[];
+};
+
 export type ChartType = "histogram" | "bar" | "scatter" | "line" | "box" | "heatmap";
 
 export type HistogramData = { bin_edges: number[]; counts: number[] };
@@ -91,4 +107,8 @@ export function fetchPreview(datasetId: string, limit = 25): Promise<DatasetPrev
 
 export function fetchCharts(datasetId: string): Promise<ChartCollection> {
   return request<ChartCollection>(`/api/datasets/${datasetId}/charts`);
+}
+
+export function fetchQuality(datasetId: string): Promise<QualityReport> {
+  return request<QualityReport>(`/api/datasets/${datasetId}/quality`);
 }
