@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { ChartGrid } from "@/components/ChartGrid";
 import { ColumnTable } from "@/components/ColumnTable";
+import { InsightList } from "@/components/InsightList";
 import { PreviewTable } from "@/components/PreviewTable";
 import { ProfileOverview } from "@/components/ProfileOverview";
 import { QualityIssues } from "@/components/QualityIssues";
@@ -12,12 +13,14 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
   fetchCharts,
+  fetchInsights,
   fetchPreview,
   fetchQuality,
   uploadDataset,
   type ChartSpec,
   type DatasetPreview,
   type DatasetProfile,
+  type Insight,
   type QualityIssue,
   type QualityScore as Score,
 } from "@/lib/api";
@@ -26,6 +29,7 @@ export default function Home() {
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
   const [charts, setCharts] = useState<ChartSpec[]>([]);
+  const [insights, setInsights] = useState<Insight[]>([]);
   const [issues, setIssues] = useState<QualityIssue[]>([]);
   const [score, setScore] = useState<Score | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -37,15 +41,17 @@ export default function Home() {
     try {
       const uploaded = await uploadDataset(file);
       setProfile(uploaded);
-      const [previewed, charted, quality] = await Promise.all([
+      const [previewed, charted, quality, found] = await Promise.all([
         fetchPreview(uploaded.dataset_id),
         fetchCharts(uploaded.dataset_id),
         fetchQuality(uploaded.dataset_id),
+        fetchInsights(uploaded.dataset_id),
       ]);
       setPreview(previewed);
       setCharts(charted.charts);
       setIssues(quality.issues);
       setScore(quality.score);
+      setInsights(found.insights);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Upload failed.");
       setProfile(null);
@@ -53,10 +59,15 @@ export default function Home() {
       setCharts([]);
       setIssues([]);
       setScore(null);
+      setInsights([]);
     } finally {
       setIsUploading(false);
     }
   }
+
+  // A chart that already sits inside a finding does not need to be shown again.
+  const explained = new Set(insights.map((insight) => insight.chart_id));
+  const remainingCharts = charts.filter((chart) => !explained.has(chart.id));
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
@@ -85,8 +96,12 @@ export default function Home() {
           </div>
           <ProfileOverview profile={profile} />
           {score && <QualityScore score={score} />}
+          <InsightList insights={insights} charts={charts} />
           <QualityIssues issues={issues} />
-          <ChartGrid charts={charts} />
+          <ChartGrid
+            charts={remainingCharts}
+            title={remainingCharts.length === charts.length ? "Charts" : "Other charts"}
+          />
           <ColumnTable columns={profile.column_schemas} />
           {preview && <PreviewTable preview={preview} />}
         </div>

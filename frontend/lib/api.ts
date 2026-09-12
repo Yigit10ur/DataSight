@@ -114,6 +114,37 @@ export type ChartCollection = {
   charts: ChartSpec[];
 };
 
+export type InsightType =
+  | "correlation"
+  | "group_difference"
+  | "trend"
+  | "seasonality"
+  | "sudden_change"
+  | "outliers"
+  | "skewed_distribution"
+  | "dominant_category"
+  | "rare_categories"
+  | "missing_data";
+
+export type Insight = {
+  id: string;
+  insight_type: InsightType;
+  columns: string[];
+  message: string;
+  metrics: Record<string, unknown>;
+  strength: number;
+  confidence: number;
+  sample_size: number;
+  caveats: string[];
+  chart_id: string | null;
+  importance: number;
+};
+
+export type InsightCollection = {
+  dataset_id: string;
+  insights: Insight[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, init);
   if (!response.ok) {
@@ -142,4 +173,8 @@ export function fetchCharts(datasetId: string): Promise<ChartCollection> {
 
 export function fetchQuality(datasetId: string): Promise<QualityReport> {
   return request<QualityReport>(`/api/datasets/${datasetId}/quality`);
+}
+
+export function fetchInsights(datasetId: string): Promise<InsightCollection> {
+  return request<InsightCollection>(`/api/datasets/${datasetId}/insights`);
 }

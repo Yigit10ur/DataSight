@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import type { ChartSpec } from "@/lib/api";
 import { readChartTheme, toPlotly } from "@/lib/charts";
 
-export function Chart({ spec }: { spec: ChartSpec }) {
+export function Chart({ spec, showTitle = true }: { spec: ChartSpec; showTitle?: boolean }) {
   const container = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,7 +45,9 @@ export function Chart({ spec }: { spec: ChartSpec }) {
 
   return (
     <figure className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <figcaption className="mb-2 text-sm font-medium">{spec.title}</figcaption>
+      {showTitle && (
+        <figcaption className="mb-2 text-sm font-medium">{spec.title}</figcaption>
+      )}
       <div ref={container} />
     </figure>
   );
