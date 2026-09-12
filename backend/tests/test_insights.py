@@ -1,11 +1,9 @@
-import re
-
 import numpy as np
 import pandas as pd
 
 from app.analysis import analyze_dataset
+from app.ai import untraceable_numbers
 from app.insights import build_insights, generate_insights
-from app.insights.formatting import multiple, number, percent
 from app.profiling import profile_dataset
 from app.quality import check_dataset_quality
 from app.visualization import build_charts
@@ -275,34 +273,6 @@ def test_each_insight_points_at_a_chart_that_exists():
     assert all(insight.chart_id in chart_ids for insight in linked)
 
 
-INLINE_FORMATS = ("{:.2f}",)
-
-
-def untraceable_numbers(insight) -> set[str]:
-    """Numbers printed in the message that no metric can account for.
-
-    The renderings are produced by the same helpers the generator writes with, so
-    a message that starts formatting a number some other way fails here until the
-    format is added deliberately.
-    """
-    text = insight.message
-    for value in insight.metrics.values():
-        if isinstance(value, str):
-            text = text.replace(value, " ")
-    for column in insight.columns:
-        text = text.replace(column, " ")
-
-    renderings: set[str] = set()
-    for value in insight.metrics.values():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            continue
-        renderings.update({str(value), number(value), percent(value), multiple(value)})
-        renderings.update(template.format(value) for template in INLINE_FORMATS)
-
-    printed = set(re.findall(r"\d+(?:,\d{3})*(?:\.\d+)?[%x]?", text))
-    return printed - renderings
-
-
 def test_no_message_contains_a_number_that_is_not_in_its_metrics():
     frames = [
         pd.DataFrame(
@@ -330,7 +300,8 @@ def test_no_message_contains_a_number_that_is_not_in_its_metrics():
     checked = 0
     for frame in frames:
         for insight in insights_for(frame):
-            assert untraceable_numbers(insight) == set(), insight.message
+            leftover = untraceable_numbers(insight.message, insight.metrics, insight.columns)
+            assert leftover == set(), insight.message
             checked += 1
 
     assert checked >= 8
