@@ -151,3 +151,31 @@ def test_chart_ids_are_unique():
     ids = [chart.id for chart in charts_for(frame)]
 
     assert len(ids) == len(set(ids))
+
+
+def test_box_chart_shows_the_most_separated_pair_first():
+    rng = np.random.default_rng(5)
+    frame = pd.DataFrame(
+        {
+            "segment": ["a"] * 40 + ["b"] * 40,
+            "mixed": rng.normal(0, 1, 80),
+            "separated": [*rng.normal(0, 1, 40), *rng.normal(30, 1, 40)],
+        }
+    )
+    box = next(chart for chart in charts_for(frame) if chart.chart_type == "box")
+
+    assert box.columns == ["segment", "separated"]
+
+
+def test_line_chart_shows_the_column_that_moved_most_first():
+    days = pd.date_range("2024-01-01", periods=60)
+    frame = pd.DataFrame(
+        {
+            "day": days.astype(str),
+            "steady": np.full(60, 50.0),
+            "growing": np.linspace(10, 200, 60),
+        }
+    )
+    lines = [chart for chart in charts_for(frame) if chart.chart_type == "line"]
+
+    assert [chart.columns[1] for chart in lines] == ["growing", "steady"]

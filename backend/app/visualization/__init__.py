@@ -13,5 +13,5 @@ def build_charts(
 ) -> ChartCollection:
     return ChartCollection(
         dataset_id=profile.dataset_id,
-        charts=select_charts(frame, profile, analysis),
+        charts=select_charts(frame, analysis),
     )

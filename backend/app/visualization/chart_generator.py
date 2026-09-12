@@ -1,8 +1,12 @@
-import math
-
 import pandas as pd
 
-from app.analysis.models import CategoricalSummary, CorrelationPair, NumericSummary
+from app.analysis.models import (
+    CategoricalSummary,
+    CorrelationPair,
+    GroupComparison,
+    NumericSummary,
+    Timeline,
+)
 from app.visualization.models import (
     BarData,
     BoxData,
@@ -15,8 +19,6 @@ from app.visualization.models import (
 )
 
 MAX_SCATTER_POINTS = 2000
-MAX_LINE_POINTS = 400
-MIN_BOX_GROUP_SIZE = 5
 
 
 def _slug(*parts: str) -> str:
@@ -79,64 +81,44 @@ def scatter_chart(frame: pd.DataFrame, pair: CorrelationPair) -> ChartSpec:
     )
 
 
-def line_chart(frame: pd.DataFrame, time_column: str, value_column: str) -> ChartSpec:
-    timestamps = pd.to_datetime(frame[time_column], errors="coerce", format="mixed")
-    values = pd.to_numeric(frame[value_column], errors="coerce")
-    series = pd.DataFrame({"t": timestamps, "v": values}).dropna(subset=["t"])
-
-    span_days = (series["t"].max() - series["t"].min()).days if len(series) > 1 else 0
-    rule = "D" if span_days <= MAX_LINE_POINTS else ("W" if span_days <= MAX_LINE_POINTS * 7 else "MS")
-    grouped = series.set_index("t").resample(rule)["v"].mean()
-
+def line_chart(timeline: Timeline) -> ChartSpec:
     return ChartSpec(
-        id=_slug("line", time_column, value_column),
+        id=_slug("line", timeline.time_column, timeline.value_column),
         chart_type="line",
-        title=f"{value_column} over time",
-        columns=[time_column, value_column],
-        x_label=time_column,
-        y_label=f"mean {value_column}",
+        title=f"{timeline.value_column} over time",
+        columns=[timeline.time_column, timeline.value_column],
+        x_label=timeline.time_column,
+        y_label=f"mean {timeline.value_column}",
         data=LineData(
-            x=[timestamp.date().isoformat() for timestamp in grouped.index],
-            y=[None if math.isnan(value) else float(value) for value in grouped],
-            aggregation={"D": "daily mean", "W": "weekly mean", "MS": "monthly mean"}[rule],
+            x=[point.period for point in timeline.points],
+            y=[point.value for point in timeline.points],
+            aggregation=timeline.aggregation,
         ),
     )
 
 
-def box_chart(frame: pd.DataFrame, group_column: str, value_column: str) -> ChartSpec | None:
-    values = pd.to_numeric(frame[value_column], errors="coerce")
-    groups: list[BoxGroup] = []
-
-    for name, group in values.groupby(frame[group_column].astype(str)):
-        group = group.dropna()
-        if len(group) < MIN_BOX_GROUP_SIZE:
-            continue
-        q1, median, q3 = group.quantile([0.25, 0.5, 0.75])
-        iqr = q3 - q1
-        within = group[(group >= q1 - 1.5 * iqr) & (group <= q3 + 1.5 * iqr)]
-        groups.append(
-            BoxGroup(
-                name=str(name),
-                count=len(group),
-                lower=float(within.min() if not within.empty else group.min()),
-                q1=float(q1),
-                median=float(median),
-                q3=float(q3),
-                upper=float(within.max() if not within.empty else group.max()),
-            )
-        )
-
-    if len(groups) < 2:
-        return None
-
+def box_chart(comparison: GroupComparison) -> ChartSpec:
     return ChartSpec(
-        id=_slug("box", group_column, value_column),
+        id=_slug("box", comparison.group_column, comparison.value_column),
         chart_type="box",
-        title=f"{value_column} by {group_column}",
-        columns=[group_column, value_column],
-        x_label=group_column,
-        y_label=value_column,
-        data=BoxData(groups=groups),
+        title=f"{comparison.value_column} by {comparison.group_column}",
+        columns=[comparison.group_column, comparison.value_column],
+        x_label=comparison.group_column,
+        y_label=comparison.value_column,
+        data=BoxData(
+            groups=[
+                BoxGroup(
+                    name=group.name,
+                    count=group.count,
+                    lower=group.lower_whisker,
+                    q1=group.q1,
+                    median=group.median,
+                    q3=group.q3,
+                    upper=group.upper_whisker,
+                )
+                for group in comparison.groups
+            ]
+        ),
     )
 
 
