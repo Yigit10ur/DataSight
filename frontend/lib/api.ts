@@ -34,6 +34,39 @@ export type DatasetPreview = {
   total_rows: number;
 };
 
+export type ChartType = "histogram" | "bar" | "scatter" | "line" | "box" | "heatmap";
+
+export type HistogramData = { bin_edges: number[]; counts: number[] };
+export type BarData = { categories: string[]; counts: number[]; other_count: number };
+export type ScatterData = { x: number[]; y: number[]; sampled_from: number };
+export type LineData = { x: string[]; y: (number | null)[]; aggregation: string };
+export type BoxGroup = {
+  name: string;
+  count: number;
+  lower: number;
+  q1: number;
+  median: number;
+  q3: number;
+  upper: number;
+};
+export type BoxData = { groups: BoxGroup[] };
+export type HeatmapData = { columns: string[]; matrix: (number | null)[][] };
+
+export type ChartSpec = {
+  id: string;
+  chart_type: ChartType;
+  title: string;
+  columns: string[];
+  x_label: string;
+  y_label: string;
+  data: HistogramData | BarData | ScatterData | LineData | BoxData | HeatmapData;
+};
+
+export type ChartCollection = {
+  dataset_id: string;
+  charts: ChartSpec[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, init);
   if (!response.ok) {
@@ -54,4 +87,8 @@ export function uploadDataset(file: File): Promise<DatasetProfile> {
 
 export function fetchPreview(datasetId: string, limit = 25): Promise<DatasetPreview> {
   return request<DatasetPreview>(`/api/datasets/${datasetId}/preview?limit=${limit}`);
+}
+
+export function fetchCharts(datasetId: string): Promise<ChartCollection> {
+  return request<ChartCollection>(`/api/datasets/${datasetId}/charts`);
 }

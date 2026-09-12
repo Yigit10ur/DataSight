@@ -16,6 +16,10 @@
   --type-empty: #7b7a75;
 
   --flag-warning: #b45309;
+
+  --diverging-low: #2a78d6;
+  --diverging-mid: #f0efec;
+  --diverging-high: #e34948;
 }
 
 @theme inline {
@@ -44,6 +48,10 @@
     --type-empty: #96958d;
 
     --flag-warning: #eda100;
+
+    --diverging-low: #3987e5;
+    --diverging-mid: #383835;
+    --diverging-high: #e66767;
   }
 }
 

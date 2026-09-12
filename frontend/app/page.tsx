@@ -2,15 +2,24 @@
 
 import { useState } from "react";
 
+import { ChartGrid } from "@/components/ChartGrid";
 import { ColumnTable } from "@/components/ColumnTable";
 import { PreviewTable } from "@/components/PreviewTable";
 import { ProfileOverview } from "@/components/ProfileOverview";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import { fetchPreview, uploadDataset, type DatasetPreview, type DatasetProfile } from "@/lib/api";
+import {
+  fetchCharts,
+  fetchPreview,
+  uploadDataset,
+  type ChartSpec,
+  type DatasetPreview,
+  type DatasetProfile,
+} from "@/lib/api";
 
 export default function Home() {
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
+  const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,11 +29,17 @@ export default function Home() {
     try {
       const uploaded = await uploadDataset(file);
       setProfile(uploaded);
-      setPreview(await fetchPreview(uploaded.dataset_id));
+      const [previewed, charted] = await Promise.all([
+        fetchPreview(uploaded.dataset_id),
+        fetchCharts(uploaded.dataset_id),
+      ]);
+      setPreview(previewed);
+      setCharts(charted.charts);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Upload failed.");
       setProfile(null);
       setPreview(null);
+      setCharts([]);
     } finally {
       setIsUploading(false);
     }
@@ -53,6 +68,7 @@ export default function Home() {
             <span className="font-medium text-[var(--foreground)]">{profile.filename}</span>
           </div>
           <ProfileOverview profile={profile} />
+          <ChartGrid charts={charts} />
           <ColumnTable columns={profile.column_schemas} />
           {preview && <PreviewTable preview={preview} />}
         </div>
