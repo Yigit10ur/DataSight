@@ -26,12 +26,19 @@ export function Chart({ spec }: { spec: ChartSpec }) {
 
     draw();
 
-    const theme = window.matchMedia("(prefers-color-scheme: dark)");
-    theme.addEventListener("change", draw);
+    // Plotly bakes the token values into the traces, so it has to redraw whenever
+    // the palette changes. data-theme covers both the toggle and a system switch.
+    const observer = new MutationObserver(() => {
+      draw();
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
 
     return () => {
       disposed = true;
-      theme.removeEventListener("change", draw);
+      observer.disconnect();
       if (plotly && element) plotly.purge(element);
     };
   }, [spec]);

@@ -7,6 +7,7 @@ import { ColumnTable } from "@/components/ColumnTable";
 import { PreviewTable } from "@/components/PreviewTable";
 import { ProfileOverview } from "@/components/ProfileOverview";
 import { QualityIssues } from "@/components/QualityIssues";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
   fetchCharts,
@@ -54,11 +55,14 @@ export default function Home() {
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
-      <header>
-        <h1 className="text-2xl font-semibold">AI Data Insight Engine</h1>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          Upload a dataset and get a data analyst&apos;s first pass over it.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">AI Data Insight Engine</h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Upload a dataset and get a data analyst&apos;s first pass over it.
+          </p>
+        </div>
+        <ThemeToggle />
       </header>
 
       <UploadDropzone onFile={handleFile} isUploading={isUploading} />
