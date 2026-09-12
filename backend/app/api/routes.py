@@ -4,6 +4,7 @@ from app.analysis import DatasetAnalysis, analyze_dataset
 from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
+from app.quality import QualityReport, check_dataset_quality
 from app.store import StoredDataset, dataset_store
 from app.visualization import ChartCollection, build_charts
 
@@ -51,6 +52,12 @@ def get_charts(dataset_id: str) -> ChartCollection:
     stored = _require_dataset(dataset_id)
     analysis = analyze_dataset(stored.frame, stored.profile)
     return build_charts(stored.frame, stored.profile, analysis)
+
+
+@router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)
+def get_quality(dataset_id: str) -> QualityReport:
+    stored = _require_dataset(dataset_id)
+    return check_dataset_quality(stored.frame, stored.profile)
 
 
 def _require_dataset(dataset_id: str) -> StoredDataset:
