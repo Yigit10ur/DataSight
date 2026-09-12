@@ -3,18 +3,29 @@ import json
 from app.ai.llm_client import LLMClient, LLMError, default_client
 from app.ai.models import Explanation, ExplanationCollection
 from app.ai.prompt_builder import build_prompt
-from app.ai.verification import causal_claims, untraceable_numbers
+from app.ai.verification import causal_claims, merge_metrics, untraceable_numbers
 from app.config import settings
 from app.insights.models import Insight
 from app.profiling.models import DatasetProfile
+from app.quality.models import QualityScore
 
 NO_KEY_REASON = "No model API key is configured, so findings are shown as computed."
 
 # Explanations of the same findings never change, and every call costs money.
-_cache: dict[tuple[str, ...], list[Explanation]] = {}
+_cache: dict[tuple[str, ...], tuple[str | None, list[Explanation]]] = {}
 
 
-def _parse(text: str) -> dict[str, str]:
+def _unavailable(dataset_id: str, reason: str) -> ExplanationCollection:
+    return ExplanationCollection(
+        dataset_id=dataset_id,
+        available=False,
+        reason=reason,
+        summary=None,
+        explanations=[],
+    )
+
+
+def _parse(text: str) -> tuple[str, dict[str, str]]:
     """Read the model's JSON, tolerating a code fence around it."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
@@ -28,27 +39,59 @@ def _parse(text: str) -> dict[str, str]:
 
     if not isinstance(parsed, dict):
         raise LLMError("The model answered with something other than an object.")
-    return {str(key): str(value) for key, value in parsed.items()}
+
+    explanations = parsed.get("explanations", {})
+    if not isinstance(explanations, dict):
+        raise LLMError("The model did not return an object of explanations.")
+
+    return str(parsed.get("summary", "")), {
+        str(key): str(value) for key, value in explanations.items()
+    }
 
 
-def verify(text: str, insight: Insight) -> str | None:
-    """Return the explanation if it is grounded, or nothing if it is not.
+def _grounded(text: str, metrics: dict, columns: list[str]) -> str | None:
+    """Return the text if every quantity in it came from the analysis, else nothing.
 
-    An explanation is rejected whole rather than trimmed. A sentence removed from
-    the middle of a paragraph leaves prose that reads as if it still makes its
-    original point, which is worse than saying nothing.
+    Rejected whole rather than trimmed. A sentence removed from the middle of a
+    paragraph leaves prose that reads as if it still makes its original point,
+    which is worse than saying nothing.
     """
     if not text.strip():
         return None
-    if untraceable_numbers(text, insight.metrics, insight.columns):
+    if untraceable_numbers(text, metrics, columns):
         return None
     if causal_claims(text):
         return None
     return text.strip()
 
 
+def verify(text: str, insight: Insight) -> str | None:
+    return _grounded(text, insight.metrics, insight.columns)
+
+
+def verify_summary(
+    text: str, profile: DatasetProfile, score: QualityScore, insights: list[Insight]
+) -> str | None:
+    """Check the paragraph against everything it was allowed to draw on."""
+    metrics = merge_metrics(
+        [insight.metrics for insight in insights],
+        {
+            "rows": profile.rows,
+            "columns": profile.columns,
+            "missing_ratio": profile.missing_ratio,
+            "duplicate_rows": profile.duplicate_rows,
+            "score": score.score,
+            "out_of": 100,
+            **{dimension.name: dimension.score for dimension in score.dimensions},
+        },
+    )
+    columns = [schema.name for schema in profile.column_schemas]
+    return _grounded(text, metrics, columns)
+
+
 def explain_insights(
     profile: DatasetProfile,
+    score: QualityScore,
     insights: list[Insight],
     client: LLMClient | None = None,
 ) -> ExplanationCollection:
@@ -56,40 +99,32 @@ def explain_insights(
     dataset_id = profile.dataset_id
     explained = insights[: settings.explanation_max_insights]
 
-    if not explained:
-        return ExplanationCollection(
-            dataset_id=dataset_id, available=True, reason=None, explanations=[]
-        )
-
     client = client or default_client()
     if client is None:
-        return ExplanationCollection(
-            dataset_id=dataset_id, available=False, reason=NO_KEY_REASON, explanations=[]
-        )
+        return _unavailable(dataset_id, NO_KEY_REASON)
 
     key = (dataset_id, *(insight.id for insight in explained))
-    if key in _cache:
-        return ExplanationCollection(
-            dataset_id=dataset_id, available=True, reason=None, explanations=_cache[key]
-        )
+    if key not in _cache:
+        system, user = build_prompt(profile, score, explained)
+        try:
+            summary, answers = _parse(client.complete(system, user))
+        except LLMError as error:
+            return _unavailable(dataset_id, str(error))
 
-    system, user = build_prompt(profile, explained)
-    try:
-        answers = _parse(client.complete(system, user))
-    except LLMError as error:
-        return ExplanationCollection(
-            dataset_id=dataset_id, available=False, reason=str(error), explanations=[]
-        )
+        verified = [
+            Explanation(insight_id=insight.id, text=text)
+            for insight in explained
+            if (text := verify(answers.get(insight.id, ""), insight)) is not None
+        ]
+        _cache[key] = (verify_summary(summary, profile, score, explained), verified)
 
-    explanations = []
-    for insight in explained:
-        verified = verify(answers.get(insight.id, ""), insight)
-        if verified is not None:
-            explanations.append(Explanation(insight_id=insight.id, text=verified))
-
-    _cache[key] = explanations
+    summary, explanations = _cache[key]
     return ExplanationCollection(
-        dataset_id=dataset_id, available=True, reason=None, explanations=explanations
+        dataset_id=dataset_id,
+        available=True,
+        reason=None,
+        summary=summary,
+        explanations=explanations,
     )
 
 

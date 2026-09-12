@@ -92,3 +92,16 @@ def causal_claims(text: str) -> list[str]:
         claims.append(sentence.strip())
 
     return claims
+
+
+def merge_metrics(metric_sets: list[dict], extra: dict) -> dict:
+    """One pool of values for checking a sentence that draws on several findings.
+
+    Keys are namespaced because findings reuse names like "count"; only the values
+    matter to the check, but a collision would quietly drop one of them.
+    """
+    merged = dict(extra)
+    for position, metrics in enumerate(metric_sets):
+        for key, value in metrics.items():
+            merged[f"{position}.{key}"] = value
+    return merged

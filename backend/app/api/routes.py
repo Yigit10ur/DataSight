@@ -77,7 +77,7 @@ def get_explanations(dataset_id: str) -> ExplanationCollection:
     charts = build_charts(stored.frame, stored.profile, analysis)
     quality = check_dataset_quality(stored.frame, stored.profile)
     insights = build_insights(stored.profile, analysis, quality, charts.charts)
-    return explain_insights(stored.profile, insights.insights)
+    return explain_insights(stored.profile, quality.score, insights.insights)
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)
