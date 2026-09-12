@@ -3,6 +3,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from app.analysis import DatasetAnalysis, analyze_dataset
 from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
+from app.insights import InsightCollection, build_insights
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
 from app.quality import QualityReport, check_dataset_quality
 from app.store import StoredDataset, dataset_store
@@ -52,6 +53,15 @@ def get_charts(dataset_id: str) -> ChartCollection:
     stored = _require_dataset(dataset_id)
     analysis = analyze_dataset(stored.frame, stored.profile)
     return build_charts(stored.frame, stored.profile, analysis)
+
+
+@router.get("/datasets/{dataset_id}/insights", response_model=InsightCollection)
+def get_insights(dataset_id: str) -> InsightCollection:
+    stored = _require_dataset(dataset_id)
+    analysis = analyze_dataset(stored.frame, stored.profile)
+    charts = build_charts(stored.frame, stored.profile, analysis)
+    quality = check_dataset_quality(stored.frame, stored.profile)
+    return build_insights(analysis, quality, charts.charts)
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)

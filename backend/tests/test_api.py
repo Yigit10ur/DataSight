@@ -61,3 +61,28 @@ def test_upload_rejects_unsupported_type():
     response = client.post("/api/upload", files={"file": ("notes.txt", b"hello", "text/plain")})
     assert response.status_code == 400
     assert "Unsupported file type" in response.json()["detail"]
+
+
+STRUCTURED_CSV = b"segment,revenue\n" + b"".join(
+    (f"enterprise,{200 + index}\n".encode() for index in range(40))
+) + b"".join((f"smb,{50 + index}\n".encode() for index in range(40)))
+
+
+def test_insights_endpoint_returns_structured_findings():
+    dataset_id = client.post(
+        "/api/upload", files={"file": ("segments.csv", STRUCTURED_CSV, "text/csv")}
+    ).json()["dataset_id"]
+
+    body = client.get(f"/api/datasets/{dataset_id}/insights").json()
+    insight = next(
+        item for item in body["insights"] if item["insight_type"] == "group_difference"
+    )
+
+    assert body["dataset_id"] == dataset_id
+    assert insight["columns"] == ["segment", "revenue"]
+    assert insight["metrics"]["highest_group"] == "enterprise"
+    assert 0 <= insight["strength"] <= 1
+
+
+def test_insights_for_an_unknown_dataset_return_404():
+    assert client.get("/api/datasets/does-not-exist/insights").status_code == 404
