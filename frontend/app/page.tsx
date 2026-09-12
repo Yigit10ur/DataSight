@@ -32,6 +32,7 @@ export default function Home() {
   const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [explanations, setExplanations] = useState(new Map<string, string>());
+  const [summary, setSummary] = useState<string | null>(null);
   const [isExplaining, setIsExplaining] = useState(false);
   const [issues, setIssues] = useState<QualityIssue[]>([]);
   const [score, setScore] = useState<Score | null>(null);
@@ -42,6 +43,7 @@ export default function Home() {
     setIsUploading(true);
     setError(null);
     setExplanations(new Map());
+    setSummary(null);
     try {
       const uploaded = await uploadDataset(file);
       setProfile(uploaded);
@@ -59,18 +61,17 @@ export default function Home() {
 
       // Asked for separately and awaited last: a slow model, or none at all, must
       // not keep the computed numbers off the screen.
-      if (found.insights.length > 0) {
-        setIsExplaining(true);
-        try {
-          const explained = await fetchExplanations(uploaded.dataset_id);
-          setExplanations(
-            new Map(explained.explanations.map((item) => [item.insight_id, item.text])),
-          );
-        } catch {
-          // The findings stand on their own without an explanation.
-        } finally {
-          setIsExplaining(false);
-        }
+      setIsExplaining(true);
+      try {
+        const explained = await fetchExplanations(uploaded.dataset_id);
+        setSummary(explained.summary);
+        setExplanations(
+          new Map(explained.explanations.map((item) => [item.insight_id, item.text])),
+        );
+      } catch {
+        // The findings stand on their own without an explanation.
+      } finally {
+        setIsExplaining(false);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Upload failed.");
@@ -81,6 +82,7 @@ export default function Home() {
       setScore(null);
       setInsights([]);
       setExplanations(new Map());
+      setSummary(null);
     } finally {
       setIsUploading(false);
     }
@@ -121,6 +123,7 @@ export default function Home() {
             insights={insights}
             charts={charts}
             explanations={explanations}
+            summary={summary}
             isExplaining={isExplaining}
           />
           <QualityIssues issues={issues} />

@@ -154,6 +154,7 @@ export type ExplanationCollection = {
   dataset_id: string;
   available: boolean;
   reason: string | null;
+  summary: string | null;
   explanations: Explanation[];
 };
 
