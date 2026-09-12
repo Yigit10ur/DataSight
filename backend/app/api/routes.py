@@ -61,7 +61,7 @@ def get_insights(dataset_id: str) -> InsightCollection:
     analysis = analyze_dataset(stored.frame, stored.profile)
     charts = build_charts(stored.frame, stored.profile, analysis)
     quality = check_dataset_quality(stored.frame, stored.profile)
-    return build_insights(analysis, quality, charts.charts)
+    return build_insights(stored.profile, analysis, quality, charts.charts)
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)

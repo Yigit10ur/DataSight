@@ -33,9 +33,16 @@ class Insight(BaseModel):
     # of different types can be compared at all. Turning it into a position in a
     # list is the ranker's job, not this one's.
     strength: float
+    # How much the numbers behind this finding can be leaned on, separately from how
+    # large the effect is. Caveats say the same thing to the reader in prose; this
+    # says it to the ranker, which cannot read prose.
+    confidence: float
     sample_size: int
     caveats: list[str]
     chart_id: str | None
+    # Position in the list is decided by the ranker, from the three fields above
+    # together with what kind of finding this is. Zero until it has run.
+    importance: float = 0.0
 
 
 class InsightCollection(BaseModel):

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from app.analysis import analyze_dataset
-from app.insights import build_insights
+from app.insights import build_insights, generate_insights
 from app.insights.formatting import multiple, number, percent
 from app.profiling import profile_dataset
 from app.quality import check_dataset_quality
@@ -12,11 +12,20 @@ from app.visualization import build_charts
 
 
 def insights_for(frame: pd.DataFrame):
+    """Everything the generator finds, before the ranker decides what survives."""
     profile = profile_dataset("x", "f.csv", frame)
     analysis = analyze_dataset(frame, profile)
     charts = build_charts(frame, profile, analysis)
     quality = check_dataset_quality(frame, profile)
-    return build_insights(analysis, quality, charts.charts).insights
+    return generate_insights(profile, analysis, quality, charts.charts)
+
+
+def ranked_for(frame: pd.DataFrame):
+    profile = profile_dataset("x", "f.csv", frame)
+    analysis = analyze_dataset(frame, profile)
+    charts = build_charts(frame, profile, analysis)
+    quality = check_dataset_quality(frame, profile)
+    return build_insights(profile, analysis, quality, charts.charts).insights
 
 
 def types_for(frame: pd.DataFrame) -> list[str]:
@@ -256,7 +265,8 @@ def test_each_insight_points_at_a_chart_that_exists():
     profile = profile_dataset("x", "f.csv", frame)
     analysis = analyze_dataset(frame, profile)
     charts = build_charts(frame, profile, analysis)
-    insights = build_insights(analysis, check_dataset_quality(frame, profile), charts.charts)
+    quality = check_dataset_quality(frame, profile)
+    insights = build_insights(profile, analysis, quality, charts.charts)
 
     chart_ids = {chart.id for chart in charts.charts}
     linked = [insight for insight in insights.insights if insight.chart_id is not None]

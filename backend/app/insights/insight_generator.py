@@ -9,6 +9,7 @@ from app.analysis.models import (
 )
 from app.insights.formatting import multiple, number, percent
 from app.insights.models import Insight
+from app.profiling.models import DatasetProfile
 from app.quality.models import QualityReport
 from app.visualization.models import ChartSpec
 
@@ -40,6 +41,8 @@ SPLIT_CATEGORY_CAVEAT = (
     "This column has spelling or spacing variants, so one real group may be split "
     "across several of the groups compared here."
 )
+
+SPLIT_CATEGORY_CONFIDENCE = 0.6
 
 CONSISTENCY_ISSUES = {"suspicious_categories", "inconsistent_formatting"}
 
@@ -74,6 +77,7 @@ def _correlation_insight(pair: CorrelationPair, charts: dict) -> Insight | None:
             "spearman": pair.spearman,
             "sample_size": pair.sample_size,
         },
+        confidence=1.0,
         strength=coefficient,
         sample_size=pair.sample_size,
         caveats=[CAUSATION_CAVEAT],
@@ -90,6 +94,7 @@ def _group_insight(
     if comparison.p_value is not None and comparison.p_value > SIGNIFICANT_P:
         return None
 
+    split = comparison.group_column in split_columns
     highest = next(group for group in comparison.groups if group.name == comparison.highest_group)
     lowest = next(group for group in comparison.groups if group.name == comparison.lowest_group)
 
@@ -118,9 +123,10 @@ def _group_insight(
             "p_value": comparison.p_value,
             "sample_size": comparison.sample_size,
         },
+        confidence=SPLIT_CATEGORY_CONFIDENCE if split else 1.0,
         strength=_capped(effect, LARGE_EFFECT),
         sample_size=comparison.sample_size,
-        caveats=[SPLIT_CATEGORY_CAVEAT] if comparison.group_column in split_columns else [],
+        caveats=[SPLIT_CATEGORY_CAVEAT] if split else [],
         chart_id=charts.get(("box", (comparison.group_column, comparison.value_column))),
     )
 
@@ -154,6 +160,7 @@ def _trend_insight(timeline: Timeline, charts: dict) -> Insight | None:
             "end": timeline.end,
             "aggregation": timeline.aggregation,
         },
+        confidence=1.0,
         strength=_capped(change, DOUBLED),
         sample_size=timeline.sample_size,
         caveats=[],
@@ -181,6 +188,7 @@ def _seasonality_insight(timeline: Timeline, charts: dict) -> Insight | None:
             "weakest": season.weakest,
             "seasonal_strength": season.strength,
         },
+        confidence=1.0,
         strength=season.strength,
         sample_size=timeline.sample_size,
         caveats=[],
@@ -211,6 +219,7 @@ def _sudden_change_insight(timeline: Timeline, charts: dict) -> Insight | None:
             "change_ratio": change.ratio,
             "aggregation": timeline.aggregation,
         },
+        confidence=1.0,
         strength=_capped(change.ratio, DOUBLED),
         sample_size=timeline.sample_size,
         caveats=[],
@@ -240,6 +249,7 @@ def _outlier_insight(summary: NumericSummary, charts: dict) -> Insight | None:
             "minimum": summary.minimum,
             "maximum": summary.maximum,
         },
+        confidence=1.0,
         strength=_capped(summary.outlier_ratio, SEVERE_OUTLIER_RATIO),
         sample_size=summary.count,
         caveats=[],
@@ -272,6 +282,7 @@ def _skew_insight(summary: NumericSummary, charts: dict) -> Insight | None:
             "median": summary.median,
             "count": summary.count,
         },
+        confidence=1.0,
         strength=_capped(skew, EXTREME_SKEW),
         sample_size=summary.count,
         caveats=[],
@@ -302,6 +313,7 @@ def _dominant_category_insight(summary: CategoricalSummary, charts: dict) -> Ins
             "total": summary.count,
             "unique_count": summary.unique_count,
         },
+        confidence=1.0,
         strength=top.ratio,
         sample_size=summary.count,
         caveats=[],
@@ -328,6 +340,7 @@ def _rare_categories_insight(summary: CategoricalSummary, charts: dict) -> Insig
             "count": summary.count,
             "rare_threshold": RARE_CATEGORY_RATIO,
         },
+        confidence=1.0,
         strength=_capped(summary.rare_category_count / summary.unique_count, 1.0),
         sample_size=summary.count,
         caveats=[],
@@ -335,7 +348,7 @@ def _rare_categories_insight(summary: CategoricalSummary, charts: dict) -> Insig
     )
 
 
-def _missing_insights(quality: QualityReport) -> list[Insight]:
+def _missing_insights(quality: QualityReport, rows: int) -> list[Insight]:
     insights: list[Insight] = []
 
     for issue in quality.issues:
@@ -357,8 +370,11 @@ def _missing_insights(quality: QualityReport) -> list[Insight]:
                     f"rests on the remainder."
                 ),
                 metrics=issue.metrics,
+                confidence=1.0,
                 strength=_capped(ratio, UNUSABLE_MISSING_RATIO),
-                sample_size=issue.metrics["missing_count"],
+                # The finding is about the column, so it rests on every row of it,
+                # not only on the rows that turned out to be empty.
+                sample_size=rows,
                 caveats=[],
                 chart_id=None,
             )
@@ -373,7 +389,10 @@ def _chart_lookup(charts: list[ChartSpec]) -> dict[tuple[str, tuple[str, ...]], 
 
 
 def generate_insights(
-    analysis: DatasetAnalysis, quality: QualityReport, charts: list[ChartSpec]
+    profile: DatasetProfile,
+    analysis: DatasetAnalysis,
+    quality: QualityReport,
+    charts: list[ChartSpec],
 ) -> list[Insight]:
     """Turn computed results into structured findings.
 
@@ -406,4 +425,4 @@ def generate_insights(
         candidates.append(_rare_categories_insight(summary, lookup))
 
     found = [insight for insight in candidates if insight is not None]
-    return [*found, *_missing_insights(quality)]
+    return [*found, *_missing_insights(quality, profile.rows)]
