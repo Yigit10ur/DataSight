@@ -29,6 +29,41 @@ class QualityIssue(BaseModel):
     metrics: dict[str, Any]
 
 
+DimensionName = Literal[
+    "completeness",
+    "consistency",
+    "duplicates",
+    "outliers",
+    "type_consistency",
+]
+
+
+class ScoreContribution(BaseModel):
+    """What one column cost a dimension, and which reported issues explain it."""
+
+    columns: list[str]
+    issue_ids: list[str]
+    share: float
+
+
+class QualityDimension(BaseModel):
+    name: DimensionName
+    label: str
+    score: int
+    weight: float
+    observed: float
+    tolerance: float
+    applicable: bool
+    contributions: list[ScoreContribution]
+
+
+class QualityScore(BaseModel):
+    dataset_id: str
+    score: int
+    dimensions: list[QualityDimension]
+
+
 class QualityReport(BaseModel):
     dataset_id: str
+    score: QualityScore
     issues: list[QualityIssue]
