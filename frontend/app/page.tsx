@@ -1,45 +1,62 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { API_URL, fetchHealth } from "@/lib/api";
-
-type Status =
-  | { state: "loading" }
-  | { state: "connected"; app: string }
-  | { state: "error"; message: string };
+import { ColumnTable } from "@/components/ColumnTable";
+import { PreviewTable } from "@/components/PreviewTable";
+import { ProfileOverview } from "@/components/ProfileOverview";
+import { UploadDropzone } from "@/components/UploadDropzone";
+import { fetchPreview, uploadDataset, type DatasetPreview, type DatasetProfile } from "@/lib/api";
 
 export default function Home() {
-  const [status, setStatus] = useState<Status>({ state: "loading" });
+  const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [preview, setPreview] = useState<DatasetPreview | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchHealth()
-      .then((health) => setStatus({ state: "connected", app: health.app }))
-      .catch((error: Error) => setStatus({ state: "error", message: error.message }));
-  }, []);
+  async function handleFile(file: File) {
+    setIsUploading(true);
+    setError(null);
+    try {
+      const uploaded = await uploadDataset(file);
+      setProfile(uploaded);
+      setPreview(await fetchPreview(uploaded.dataset_id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Upload failed.");
+      setProfile(null);
+      setPreview(null);
+    } finally {
+      setIsUploading(false);
+    }
+  }
 
   return (
-    <main className="mx-auto flex max-w-2xl flex-1 flex-col justify-center gap-6 px-6 py-16">
-      <div>
-        <h1 className="text-3xl font-semibold">AI Data Insight Engine</h1>
-        <p className="mt-2 text-sm opacity-70">
-          Upload your dataset and get a data analyst&apos;s first 30 minutes of analysis instantly.
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
+      <header>
+        <h1 className="text-2xl font-semibold">AI Data Insight Engine</h1>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          Upload a dataset and get a data analyst&apos;s first pass over it.
         </p>
-      </div>
+      </header>
 
-      <div className="rounded-lg border border-black/10 p-4 text-sm dark:border-white/15">
-        <div className="font-medium">Backend</div>
-        <div className="mt-1 font-mono text-xs opacity-70">{API_URL}</div>
-        <div className="mt-3">
-          {status.state === "loading" && <span className="opacity-70">Checking connection…</span>}
-          {status.state === "connected" && (
-            <span className="text-green-600 dark:text-green-400">Connected — {status.app}</span>
-          )}
-          {status.state === "error" && (
-            <span className="text-red-600 dark:text-red-400">Not reachable — {status.message}</span>
-          )}
+      <UploadDropzone onFile={handleFile} isUploading={isUploading} />
+
+      {error && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--flag-warning)]">
+          {error}
         </div>
-      </div>
+      )}
+
+      {profile && (
+        <div className="flex flex-col gap-6">
+          <div className="text-sm text-[var(--text-secondary)]">
+            <span className="font-medium text-[var(--foreground)]">{profile.filename}</span>
+          </div>
+          <ProfileOverview profile={profile} />
+          <ColumnTable columns={profile.column_schemas} />
+          {preview && <PreviewTable preview={preview} />}
+        </div>
+      )}
     </main>
   );
 }
