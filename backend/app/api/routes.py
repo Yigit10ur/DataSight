@@ -1,5 +1,6 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.analysis import DatasetAnalysis, analyze_dataset
 from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
@@ -36,6 +37,12 @@ def get_profile(dataset_id: str) -> DatasetProfile:
 def get_preview(dataset_id: str, limit: int = 25) -> DatasetPreview:
     stored = _require_dataset(dataset_id)
     return build_preview(dataset_id, stored.frame, limit)
+
+
+@router.get("/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis)
+def get_analysis(dataset_id: str) -> DatasetAnalysis:
+    stored = _require_dataset(dataset_id)
+    return analyze_dataset(stored.frame, stored.profile)
 
 
 def _require_dataset(dataset_id: str) -> StoredDataset:
