@@ -33,8 +33,28 @@ def test_uploaded_profile_can_be_fetched_by_id():
     assert response.json()["dataset_id"] == dataset_id
 
 
+def test_preview_returns_rows_with_missing_values_as_null():
+    csv = b"name,age\nAda,36\nGrace,\n"
+    dataset_id = client.post("/api/upload", files={"file": ("people.csv", csv, "text/csv")}).json()["dataset_id"]
+
+    body = client.get(f"/api/datasets/{dataset_id}/preview").json()
+    assert body["columns"] == ["name", "age"]
+    assert body["total_rows"] == 2
+    assert body["rows"][0] == {"name": "Ada", "age": 36}
+    assert body["rows"][1]["age"] is None
+
+
+def test_preview_respects_limit():
+    dataset_id = client.post("/api/upload", files={"file": ("people.csv", CSV, "text/csv")}).json()["dataset_id"]
+
+    body = client.get(f"/api/datasets/{dataset_id}/preview?limit=2").json()
+    assert len(body["rows"]) == 2
+    assert body["total_rows"] == 3
+
+
 def test_unknown_dataset_returns_404():
     assert client.get("/api/datasets/does-not-exist/profile").status_code == 404
+    assert client.get("/api/datasets/does-not-exist/preview").status_code == 404
 
 
 def test_upload_rejects_unsupported_type():

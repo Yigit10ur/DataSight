@@ -2,8 +2,8 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
-from app.profiling import DatasetProfile, profile_dataset
-from app.store import dataset_store
+from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
+from app.store import StoredDataset, dataset_store
 
 router = APIRouter()
 
@@ -29,7 +29,17 @@ async def upload(file: UploadFile = File(...)) -> DatasetProfile:
 
 @router.get("/datasets/{dataset_id}/profile", response_model=DatasetProfile)
 def get_profile(dataset_id: str) -> DatasetProfile:
+    return _require_dataset(dataset_id).profile
+
+
+@router.get("/datasets/{dataset_id}/preview", response_model=DatasetPreview)
+def get_preview(dataset_id: str, limit: int = 25) -> DatasetPreview:
+    stored = _require_dataset(dataset_id)
+    return build_preview(dataset_id, stored.frame, limit)
+
+
+def _require_dataset(dataset_id: str) -> StoredDataset:
     stored = dataset_store.get(dataset_id)
     if stored is None:
         raise HTTPException(status_code=404, detail="Dataset not found.")
-    return stored.profile
+    return stored
