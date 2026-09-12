@@ -5,9 +5,13 @@ import { InsightCard } from "./InsightCard";
 export function InsightList({
   insights,
   charts,
+  explanations,
+  isExplaining,
 }: {
   insights: Insight[];
   charts: ChartSpec[];
+  explanations: Map<string, string>;
+  isExplaining: boolean;
 }) {
   const byId = new Map(charts.map((chart) => [chart.id, chart]));
 
@@ -17,7 +21,9 @@ export function InsightList({
         What stands out
         {insights.length > 0 && (
           <span className="font-normal text-[var(--text-muted)]">
-            {insights.length} finding{insights.length > 1 ? "s" : ""}, most important first
+            {isExplaining
+              ? "reading the findings\u2026"
+              : `${insights.length} finding${insights.length > 1 ? "s" : ""}, most important first`}
           </span>
         )}
       </h2>
@@ -35,6 +41,7 @@ export function InsightList({
               key={insight.id}
               insight={insight}
               chart={insight.chart_id ? byId.get(insight.chart_id) : undefined}
+              explanation={explanations.get(insight.id)}
             />
           ))}
         </div>

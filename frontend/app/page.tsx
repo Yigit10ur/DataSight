@@ -13,6 +13,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
   fetchCharts,
+  fetchExplanations,
   fetchInsights,
   fetchPreview,
   fetchQuality,
@@ -30,6 +31,8 @@ export default function Home() {
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
   const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
+  const [explanations, setExplanations] = useState(new Map<string, string>());
+  const [isExplaining, setIsExplaining] = useState(false);
   const [issues, setIssues] = useState<QualityIssue[]>([]);
   const [score, setScore] = useState<Score | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -38,6 +41,7 @@ export default function Home() {
   async function handleFile(file: File) {
     setIsUploading(true);
     setError(null);
+    setExplanations(new Map());
     try {
       const uploaded = await uploadDataset(file);
       setProfile(uploaded);
@@ -52,6 +56,22 @@ export default function Home() {
       setIssues(quality.issues);
       setScore(quality.score);
       setInsights(found.insights);
+
+      // Asked for separately and awaited last: a slow model, or none at all, must
+      // not keep the computed numbers off the screen.
+      if (found.insights.length > 0) {
+        setIsExplaining(true);
+        try {
+          const explained = await fetchExplanations(uploaded.dataset_id);
+          setExplanations(
+            new Map(explained.explanations.map((item) => [item.insight_id, item.text])),
+          );
+        } catch {
+          // The findings stand on their own without an explanation.
+        } finally {
+          setIsExplaining(false);
+        }
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Upload failed.");
       setProfile(null);
@@ -60,6 +80,7 @@ export default function Home() {
       setIssues([]);
       setScore(null);
       setInsights([]);
+      setExplanations(new Map());
     } finally {
       setIsUploading(false);
     }
@@ -96,7 +117,12 @@ export default function Home() {
           </div>
           <ProfileOverview profile={profile} />
           {score && <QualityScore score={score} />}
-          <InsightList insights={insights} charts={charts} />
+          <InsightList
+            insights={insights}
+            charts={charts}
+            explanations={explanations}
+            isExplaining={isExplaining}
+          />
           <QualityIssues issues={issues} />
           <ChartGrid
             charts={remainingCharts}

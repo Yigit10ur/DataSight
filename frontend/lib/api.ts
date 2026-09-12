@@ -145,6 +145,18 @@ export type InsightCollection = {
   insights: Insight[];
 };
 
+export type Explanation = {
+  insight_id: string;
+  text: string;
+};
+
+export type ExplanationCollection = {
+  dataset_id: string;
+  available: boolean;
+  reason: string | null;
+  explanations: Explanation[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, init);
   if (!response.ok) {
@@ -177,4 +189,8 @@ export function fetchQuality(datasetId: string): Promise<QualityReport> {
 
 export function fetchInsights(datasetId: string): Promise<InsightCollection> {
   return request<InsightCollection>(`/api/datasets/${datasetId}/insights`);
+}
+
+export function fetchExplanations(datasetId: string): Promise<ExplanationCollection> {
+  return request<ExplanationCollection>(`/api/datasets/${datasetId}/explanations`);
 }
