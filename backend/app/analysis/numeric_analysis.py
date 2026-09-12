@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from app.analysis.models import Histogram, NumericSummary
+from app.analysis.numbers import numeric_values
 
 MAX_HISTOGRAM_BINS = 30
 IQR_OUTLIER_FACTOR = 1.5
@@ -39,7 +40,7 @@ def build_histogram(values: pd.Series) -> Histogram:
 
 def analyze_numeric(series: pd.Series) -> NumericSummary:
     """Describe the distribution of a numeric column."""
-    values = pd.to_numeric(series, errors="coerce").dropna()
+    values = numeric_values(series).dropna()
     outlier_count = count_iqr_outliers(values) if not values.empty else 0
 
     return NumericSummary(

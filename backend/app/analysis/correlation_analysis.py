@@ -4,6 +4,7 @@ from itertools import combinations
 import pandas as pd
 
 from app.analysis.models import CorrelationPair
+from app.analysis.numbers import numeric_values
 
 MIN_SAMPLE_SIZE = 3
 MAX_PAIRS = 50
@@ -14,7 +15,7 @@ def analyze_correlations(frame: pd.DataFrame, columns: list[str]) -> list[Correl
     pairs: list[CorrelationPair] = []
 
     for column_a, column_b in combinations(columns, 2):
-        both = frame[[column_a, column_b]].apply(pd.to_numeric, errors="coerce").dropna()
+        both = frame[[column_a, column_b]].apply(numeric_values).dropna()
         if len(both) < MIN_SAMPLE_SIZE:
             continue
         # A column with no variance correlates with nothing, and dividing by its
