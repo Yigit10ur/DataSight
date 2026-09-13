@@ -297,14 +297,22 @@ Without it, everything works except the prose. `backend/.env.example` lists the 
 overrides (`DATASIGHT_EXPLANATION_MODEL`, default `claude-sonnet-5`, and
 `DATASIGHT_EXPLANATION_MAX_INSIGHTS`, default 8).
 
+The file is located from `app/config.py` rather than from the working directory, so it is found
+however the process was started. A relative path read the key when the server was launched from
+`backend/` and quietly did not from anywhere else, which turns a missing explanation layer into
+a puzzle with no error to read.
+
 ## Tests
 
 ```bash
 cd backend && .venv/bin/python -m pytest tests -q
 ```
 
-182 tests, up from 71. The AI layer is tested against an injected fake client; **the suite
-makes no network calls and needs no API key.**
+188 tests, up from 71. The AI layer is tested against an injected fake client; **the suite
+makes no network calls and needs no API key.** That is enforced rather than assumed: a fixture
+in `tests/conftest.py` clears the configured key for every test. Before it existed the promise
+held only while no key was present — a key in the developer's own `.env` reached the endpoint
+test for the no-key path, which then called the real API and billed for it.
 
 Two tests are worth knowing about, because they encode the project's central claim rather
 than a behaviour:
@@ -313,11 +321,44 @@ than a behaviour:
   a number it did not compute.
 - `test_no_row_of_the_dataset_reaches_the_prompt` — the data does not leave the machine.
 
+## What the live path showed
+
+The layer has now been run against the real API. Four defects were found, and all four were
+one mistake wearing different clothes: **the checker did not recognise a number the prompt had
+already shown the model.**
+
+- The generator writes a magnitude unsigned — "revenue fell 31.6%" — against a metric of
+  -0.316, and only the signed rendering was accepted. Every falling trend and every negative
+  correlation failed. The generator's own messages did not pass their own check, and the test
+  that claims they do used four rising fixtures.
+- The payload carries `rows_behind_it` for every finding, but only some types repeat it inside
+  `metrics`. A model that wrote "342 of the 360 rows" was rejected for quoting a number it had
+  been handed.
+- The dataset block — rows, columns, missing share, the score — was pooled when checking the
+  summary and not when checking an individual explanation, so the file's own row count failed
+  the same way.
+- `due to` is in the causal phrase list, which read "unlikely to be due to chance" — the
+  ordinary way to say a result is significant — as a claim that one column acts on another,
+  and dropped the whole explanation for it.
+
+The first was found without a key at all, by putting the prompt through a model by hand and
+running the answer through the checker. The other three needed a real call.
+
+With all four fixed, a run over a 360-row file returns a verified summary and two of its three
+explanations, in both runs measured — a different explanation rejected each time. Those
+rejections are the model's own: in one it wrote 9,949 for a mean of 9,948.47, and the check
+refused it. That is the layer doing its job.
+
 ## Known gaps
 
-The live model path has not been exercised against the real API. The SDK call shape was
-verified — client parameters, `messages.create` fields, the error type — but no response from
-a real model has been seen, because no key is configured.
+Adaptive thinking is on for `claude-sonnet-5` whenever the `thinking` parameter is omitted, and
+its tokens share the `max_tokens` budget with the answer. At three findings the response
+finished well inside 1500; at the configured maximum of eight it has not been measured. A
+truncated answer is not shortened prose but unparseable JSON, which drops the whole layer
+rather than part of it.
+
+How often a faithful explanation is still refused has not been measured over enough runs to put
+a number on. Two of three, twice, is not a rate.
 
 The histogram attached to a skew finding is accurate and hard to read: a long tail renders as
 one tall bar and a row of invisible ones. A log axis is a presentation decision that has not
