@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 from app.profiling.models import ColumnType
+from app.profiling.preview import DatasetPreview
 
 MAX_RECIPE_STEPS = 20
 MAX_GROUP_COLUMNS = 2
@@ -244,9 +245,37 @@ class StepRefusal(BaseModel):
     reason: str
 
 
+class StepReport(BaseModel):
+    """What one step did, for a reader watching the row count move."""
+
+    step_index: int
+    op: str
+    rows_in: int
+    rows_out: int
+    # Anything the step had to do that the reader did not ask for and should know
+    # about: rows left out of a grouping, values that would not divide.
+    note: str | None = None
+
+
 class RecipeValidation(BaseModel):
     # The schema as it stands after the last accepted step. Steps after a refusal
     # would be checked against a schema nobody can know, so checking stops there.
     columns: list[PlannedColumn]
     accepted: int
     refusal: StepRefusal | None = None
+
+
+class RecipePreview(BaseModel):
+    """What a recipe would produce, without producing it.
+
+    `columns` is the projected schema rather than the preview's column names: it is
+    what the interface builds its menus from, and it describes columns that exist
+    only because a step in this recipe invents them.
+    """
+
+    dataset_id: str
+    source_rows: int
+    columns: list[PlannedColumn]
+    preview: DatasetPreview
+    reports: list[StepReport]
+    refusal: StepRefusal | None

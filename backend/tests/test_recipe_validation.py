@@ -374,13 +374,20 @@ def test_no_step_can_reach_an_interpreter():
     """Nothing a reader writes is ever executed as code.
 
     The whole argument for a closed vocabulary is that a column name is looked up and
-    an operation is dispatched, never evaluated. This reads the package rather than
-    trusting that it stayed that way.
+    an operation is dispatched, never evaluated. This reads the source rather than
+    trusting that it stayed that way, and it covers every file a recipe passes
+    through on its way in from a request — not only the package that defines it.
     """
     forbidden = ("eval(", "exec(", ".query(", "getattr(", "__import__", "compile(")
     package = Path(recipes_package.__file__).parent
+    backend = package.parent.parent
+    reached = [
+        *sorted(package.glob("*.py")),
+        backend / "app" / "store.py",
+        backend / "app" / "api" / "routes.py",
+    ]
 
-    for path in sorted(package.glob("*.py")):
+    for path in reached:
         source = path.read_text()
         for construct in forbidden:
             assert construct not in source, f"{path.name} reaches for {construct}"

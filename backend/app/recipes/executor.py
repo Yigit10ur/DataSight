@@ -2,8 +2,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel
-
 from app.analysis.numbers import numeric_values
 from app.recipes.models import (
     Aggregate,
@@ -29,6 +27,7 @@ from app.recipes.models import (
     SelectColumns,
     SortRows,
     StepRefusal,
+    StepReport,
     TransformStep,
 )
 from app.recipes.schema import aggregation_name, find_column, plan_schema
@@ -58,18 +57,6 @@ WHOLE_TABLE_FUNCTIONS = {
     "max": lambda series: series.max(),
     "count": lambda series: series.count(),
 }
-
-
-class StepReport(BaseModel):
-    """What one step did, for a reader watching the row count move."""
-
-    step_index: int
-    op: str
-    rows_in: int
-    rows_out: int
-    # Anything the step had to do that the reader did not ask for and should know
-    # about: rows left out of a grouping, values that would not divide.
-    note: str | None = None
 
 
 @dataclass(frozen=True)
