@@ -1,4 +1,5 @@
 import json
+import threading
 
 from app.ai.llm_client import LLMClient, LLMError, default_client
 from app.ai.models import Explanation, ExplanationCollection
@@ -13,6 +14,18 @@ NO_KEY_REASON = "No model API key is configured, so findings are shown as comput
 
 # Explanations of the same findings never change, and every call costs money.
 _cache: dict[tuple[str, ...], tuple[str | None, list[Explanation]]] = {}
+
+# One lock per set of findings, so a second request for the same explanations waits
+# for the first rather than paying for it again. Checking the cache without one is
+# only safe while requests arrive apart: React mounts an effect twice in
+# development and sends exactly that overlapping pair, and so do two open tabs.
+_locks: dict[tuple[str, ...], threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock_for(key: tuple[str, ...]) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault(key, threading.Lock())
 
 
 def _unavailable(dataset_id: str, reason: str) -> ExplanationCollection:
@@ -132,20 +145,22 @@ def explain_insights(
         return _unavailable(dataset_id, NO_KEY_REASON)
 
     key = (dataset_id, *(insight.id for insight in explained))
-    if key not in _cache:
-        system, user = build_prompt(profile, score, explained)
-        try:
-            summary, answers = _parse(client.complete(system, user))
-        except LLMError as error:
-            return _unavailable(dataset_id, str(error))
+    with _lock_for(key):
+        if key not in _cache:
+            system, user = build_prompt(profile, score, explained)
+            try:
+                summary, answers = _parse(client.complete(system, user))
+            except LLMError as error:
+                return _unavailable(dataset_id, str(error))
 
-        dataset = dataset_metrics(profile, score)
-        verified = [
-            Explanation(insight_id=insight.id, text=text)
-            for insight in explained
-            if (text := verify(answers.get(insight.id, ""), insight, dataset)) is not None
-        ]
-        _cache[key] = (verify_summary(summary, profile, score, explained), verified)
+            dataset = dataset_metrics(profile, score)
+            verified = [
+                Explanation(insight_id=insight.id, text=text)
+                for insight in explained
+                if (text := verify(answers.get(insight.id, ""), insight, dataset))
+                is not None
+            ]
+            _cache[key] = (verify_summary(summary, profile, score, explained), verified)
 
     summary, explanations = _cache[key]
     return ExplanationCollection(
@@ -159,3 +174,5 @@ def explain_insights(
 
 def clear_cache() -> None:
     _cache.clear()
+    with _locks_guard:
+        _locks.clear()

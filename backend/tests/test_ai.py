@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -232,6 +234,45 @@ def test_the_same_findings_are_explained_once():
     explain_insights(profile, score, insights, client)
 
     assert client.calls == 1
+
+
+class SlowClient:
+    """Stays inside one call long enough for a second caller to arrive during it."""
+
+    def __init__(self, answer: str):
+        self.answer = answer
+        # Appended to rather than counted: a counter that loses an increment to a
+        # race would hide the very failure this is here to catch.
+        self.started: list[str] = []
+
+    def complete(self, system: str, user: str) -> str:
+        self.started.append(user)
+        time.sleep(0.05)
+        return self.answer
+
+
+def test_findings_asked_about_twice_at_once_are_still_explained_once():
+    """The cache only saves money if the second caller waits instead of racing.
+
+    A browser sends this pair unprompted: React mounts an effect twice in
+    development, so both requests are in flight before either has answered.
+    """
+    profile, score, insights = dataset()
+    client = SlowClient(answer_for(insights, "The groups sit apart."))
+    results: list = []
+
+    def ask() -> None:
+        results.append(explain_insights(profile, score, insights, client))
+
+    threads = [threading.Thread(target=ask) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(client.started) == 1
+    assert len(results) == 2
+    assert all(len(result.explanations) == len(insights) for result in results)
 
 
 def test_only_the_first_few_findings_are_sent():
