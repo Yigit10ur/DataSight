@@ -57,6 +57,13 @@ def detect_column_type(series: pd.Series) -> ColumnType:
     non_null = series.dropna()
     if non_null.empty:
         return "empty"
+    # An uploaded file never arrives with either of these: both loaders hand back
+    # object columns. They appear only where something upstream said what the column
+    # is — a recipe converting one on purpose — and a declaration beats a guess.
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        return "categorical"
+    if isinstance(series.dtype, pd.StringDtype):
+        return "text"
     if _is_boolean(series):
         return "boolean"
     if _is_datetime(series):
