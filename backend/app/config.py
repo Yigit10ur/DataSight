@@ -1,8 +1,16 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolved from this file rather than the working directory. A relative ".env"
+# is read against wherever the process was started, so the key loaded when the
+# server was launched from backend/ and silently did not when anything ran from
+# the repository root — leaving the explanation layer off with no error to read.
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="DATASIGHT_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="DATASIGHT_", env_file=ENV_FILE)
 
     app_name: str = "AI Data Insight Engine"
     cors_origins: list[str] = ["http://localhost:3000"]
