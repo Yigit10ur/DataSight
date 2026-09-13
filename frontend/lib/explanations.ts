@@ -9,9 +9,10 @@ export const EXPLANATIONS_STORAGE_KEY = "datasight-explanations";
 /**
  * Whether the dashboard may ask the API for model-written explanations.
  *
- * Off is the setting that costs nothing: the request is never sent, so no tokens
- * are billed. Everything else on the page — the profile, the quality score, the
- * findings, the charts — is computed in Python and unaffected by this choice.
+ * Off until someone asks for it. The request is the only one that reaches a model,
+ * so leaving it on by default would bill a reader who came for the profile, the
+ * quality score, the findings and the charts — all of which are computed in Python
+ * and owe nothing to this setting. Spending is opted into, not out of.
  *
  * Unlike the theme, this cannot be read before hydration: nothing paints
  * differently for it, and the first request only goes out after an upload.
@@ -23,9 +24,11 @@ const listeners = new Set<() => void>();
 export function readExplanationsChoice(): ExplanationsChoice {
   if (choice === null) {
     try {
-      choice = localStorage.getItem(EXPLANATIONS_STORAGE_KEY) === "off" ? "off" : "on";
+      // Only an explicit "on" turns it on: an unset key, an unreadable store and a
+      // value from some future version all land on the setting that costs nothing.
+      choice = localStorage.getItem(EXPLANATIONS_STORAGE_KEY) === "on" ? "on" : "off";
     } catch {
-      choice = "on";
+      choice = "off";
     }
   }
   return choice;
