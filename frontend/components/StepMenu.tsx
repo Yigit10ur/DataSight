@@ -7,6 +7,14 @@ import { initialValues, type FieldSpec, type StepOption, type Values } from "@/l
 
 type Added = { step: RecipeStep | AnalyzeStep; terminal: boolean };
 
+// Room to leave against the edge of the window, the height below which the menu
+// would rather flip upwards, and the height it will accept rather than not open.
+const MENU_MARGIN = 12;
+const MENU_COMFORTABLE = 260;
+const MENU_MINIMUM = 160;
+// Matches the w-72 the menu is drawn at.
+const MENU_WIDTH = 288;
+
 /**
  * The menu a step is chosen from, and the small form it needs filling in.
  *
@@ -22,23 +30,73 @@ export function StepMenu({
   column,
   label,
   onAdd,
-  align = "left",
 }: {
   options: StepOption[];
   columns: PlannedColumn[];
   column: string;
   label: React.ReactNode;
   onAdd: (added: Added) => void;
-  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState<StepOption | null>(null);
   const [values, setValues] = useState<Values>({});
+  const [placement, setPlacement] = useState({ above: false, fromRight: false, maxHeight: 0 });
   const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   function close() {
     setOpen(false);
     setChosen(null);
+  }
+
+  /**
+   * The edges that will actually cut the menu off.
+   *
+   * The window is not the boundary that matters: the preview table scrolls sideways,
+   * and a scroll container clips what overhangs it rather than letting it hang over
+   * the page. Setting overflow on one axis makes the other one clip too, so the same
+   * box bounds the menu in both directions.
+   */
+  function clippingBox(): { right: number; bottom: number; top: number } {
+    let right = window.innerWidth;
+    let bottom = window.innerHeight;
+    let top = 0;
+
+    for (let node = trigger.current?.parentElement; node; node = node.parentElement) {
+      const { overflowX, overflowY } = getComputedStyle(node);
+      if ([overflowX, overflowY].some((value) => value !== "visible")) {
+        const box = node.getBoundingClientRect();
+        right = Math.min(right, box.right);
+        bottom = Math.min(bottom, box.bottom);
+        top = Math.max(top, box.top);
+      }
+    }
+    return { right, bottom, top };
+  }
+
+  /**
+   * Open where there is room, and no taller than the room there is.
+   *
+   * A heading near the bottom of the window would otherwise drop its menu past the
+   * fold, and the group that runs off the end is the one that asks a question about
+   * the column — the most interesting thing the menu offers. A heading near the right
+   * edge is worse: the table scrolls sideways, so a menu that overhangs it is clipped
+   * rather than merely out of sight, and every line loses its last few words.
+   */
+  function show() {
+    const box = trigger.current?.getBoundingClientRect();
+    const edge = clippingBox();
+    const below = box ? edge.bottom - box.bottom - MENU_MARGIN : 0;
+    const above = box ? box.top - edge.top - MENU_MARGIN : 0;
+    const flip = below < MENU_COMFORTABLE && above > below;
+    const overhangs = box ? box.left + MENU_WIDTH > edge.right - MENU_MARGIN : false;
+
+    setPlacement({
+      above: flip,
+      fromRight: overhangs,
+      maxHeight: Math.max(MENU_MINIMUM, flip ? above : below),
+    });
+    setOpen(true);
   }
 
   useEffect(() => {
@@ -80,9 +138,10 @@ export function StepMenu({
   return (
     <div ref={container} className="relative inline-block">
       <button
+        ref={trigger}
         type="button"
         aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => (open ? close() : show())}
         className="cursor-pointer rounded px-1 py-0.5 hover:bg-[var(--border)]"
       >
         {label}
@@ -90,8 +149,11 @@ export function StepMenu({
 
       {open && (
         <div
-          className={`absolute z-20 mt-1 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 text-left shadow-lg ${
-            align === "right" ? "right-0" : "left-0"
+          style={{ maxHeight: placement.maxHeight }}
+          className={`absolute z-20 w-72 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 text-left shadow-lg ${
+            placement.above ? "bottom-full mb-1" : "top-full mt-1"
+          } ${
+            placement.fromRight ? "right-0" : "left-0"
           }`}
         >
           {chosen ? (
