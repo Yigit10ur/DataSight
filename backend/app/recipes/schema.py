@@ -152,6 +152,9 @@ def plan_schema(columns: list[PlannedColumn], step: TransformStep) -> list[Plann
 
 def _derived_type(step: DeriveColumn) -> ColumnType:
     expression = step.expression
+    if isinstance(expression, DatetimePartExpression) and expression.part == "date":
+        # Every other part is a label. A date is still a date.
+        return "datetime"
     match expression:
         case (
             ArithmeticExpression()

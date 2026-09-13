@@ -49,7 +49,7 @@ TYPE_LABELS = {
 }
 
 
-class _Refused(Exception):
+class StepRefused(Exception):
     """One step cannot be applied, and this is why.
 
     Carried as an exception only so that a check buried three levels inside an
@@ -70,7 +70,7 @@ def _label(column: PlannedColumn) -> str:
 def _require(columns: list[PlannedColumn], name: str) -> PlannedColumn:
     column = find_column(columns, name)
     if column is None:
-        raise _Refused(f'There is no column named "{name}" at this point in the recipe.', name)
+        raise StepRefused(f'There is no column named "{name}" at this point in the recipe.', name)
     return column
 
 
@@ -78,7 +78,7 @@ def _require_all(columns: list[PlannedColumn], names: list[str], what: str) -> N
     seen: set[str] = set()
     for name in names:
         if name in seen:
-            raise _Refused(f'"{name}" is named twice in the same {what}.', name)
+            raise StepRefused(f'"{name}" is named twice in the same {what}.', name)
         seen.add(name)
         _require(columns, name)
 
@@ -86,9 +86,9 @@ def _require_all(columns: list[PlannedColumn], names: list[str], what: str) -> N
 def _require_free(columns: list[PlannedColumn], name: str) -> str:
     cleaned = name.strip()
     if not cleaned:
-        raise _Refused("A new column needs a name.")
+        raise StepRefused("A new column needs a name.")
     if find_column(columns, cleaned) is not None:
-        raise _Refused(f'There is already a column named "{cleaned}".', cleaned)
+        raise StepRefused(f'There is already a column named "{cleaned}".', cleaned)
     return cleaned
 
 
@@ -118,7 +118,7 @@ def _coercible(value: object, inferred_type: str) -> bool:
 def _check_value_coerces(column: PlannedColumn, value: object) -> None:
     if _coercible(value, column.inferred_type):
         return
-    raise _Refused(
+    raise StepRefused(
         f'"{value}" cannot be read as a value of "{column.name}", which is {_label(column)}.',
         column.name,
     )
@@ -131,28 +131,28 @@ def _check_filter_clause(columns: list[PlannedColumn], clause: FilterClause) -> 
         return
 
     if column.inferred_type == "empty":
-        raise _Refused(
+        raise StepRefused(
             f'"{column.name}" is empty, so there is nothing to compare. '
             "Filter it on whether it is missing instead.",
             column.name,
         )
 
     if clause.operator in ORDERING_OPERATORS and column.inferred_type not in ORDERED_TYPES:
-        raise _Refused(
+        raise StepRefused(
             f'"{column.name}" is {_label(column)} and cannot be ordered. '
             "Try: is, is not, or one of a list.",
             column.name,
         )
 
     if clause.operator == "contains" and column.inferred_type not in TEXTUAL_TYPES:
-        raise _Refused(
+        raise StepRefused(
             f'"{column.name}" is {_label(column)}, so it has no text to search.',
             column.name,
         )
 
     if clause.operator in MEMBERSHIP_OPERATORS:
         if not isinstance(clause.value, list) or not clause.value:
-            raise _Refused(
+            raise StepRefused(
                 f'"{clause.operator}" needs a list of values to match against.', column.name
             )
         for value in clause.value:
@@ -160,7 +160,7 @@ def _check_filter_clause(columns: list[PlannedColumn], clause: FilterClause) -> 
         return
 
     if clause.value is None or isinstance(clause.value, list):
-        raise _Refused(
+        raise StepRefused(
             f'"{clause.operator}" needs a single value to compare against.', column.name
         )
     _check_value_coerces(column, clause.value)
@@ -169,12 +169,12 @@ def _check_filter_clause(columns: list[PlannedColumn], clause: FilterClause) -> 
 def _check_operand(columns: list[PlannedColumn], operand: Operand, operator: str) -> None:
     if isinstance(operand, ConstantOperand):
         if operator == "divide" and operand.value == 0:
-            raise _Refused("Dividing by zero leaves nothing to analyse.")
+            raise StepRefused("Dividing by zero leaves nothing to analyse.")
         return
     if isinstance(operand, ColumnOperand):
         column = _require(columns, operand.name)
         if column.inferred_type != "numeric":
-            raise _Refused(
+            raise StepRefused(
                 f'"{column.name}" is {_label(column)} and cannot be used in arithmetic.',
                 column.name,
             )
@@ -183,27 +183,31 @@ def _check_operand(columns: list[PlannedColumn], operand: Operand, operator: str
 def _check_bin(columns: list[PlannedColumn], expression: BinExpression) -> None:
     column = _require(columns, expression.column)
     if column.inferred_type != "numeric":
-        raise _Refused(
+        raise StepRefused(
             f'"{column.name}" is {_label(column)}, and only numbers can be binned.', column.name
         )
 
     if bool(expression.edges) == (expression.quantiles is not None):
-        raise _Refused("Bins need either cut points or a number of equal-sized buckets, not both.")
+        raise StepRefused(
+            "Bins need either cut points or a number of equal-sized buckets, not both."
+        )
 
     if expression.edges:
         if len(expression.edges) < 2:
-            raise _Refused("Cut points have to describe at least one bin, so there must be two.")
+            raise StepRefused(
+                "Cut points have to describe at least one bin, so there must be two."
+            )
         if any(a >= b for a, b in zip(expression.edges, expression.edges[1:])):
-            raise _Refused("Cut points have to increase.")
+            raise StepRefused("Cut points have to increase.")
         bin_count = len(expression.edges) - 1
     else:
         quantiles = expression.quantiles or 0
         if not 2 <= quantiles <= MAX_BIN_COUNT:
-            raise _Refused(f"Between 2 and {MAX_BIN_COUNT} buckets, not {quantiles}.")
+            raise StepRefused(f"Between 2 and {MAX_BIN_COUNT} buckets, not {quantiles}.")
         bin_count = quantiles
 
     if expression.labels and len(expression.labels) != bin_count:
-        raise _Refused(f"There are {bin_count} bins but {len(expression.labels)} labels.")
+        raise StepRefused(f"There are {bin_count} bins but {len(expression.labels)} labels.")
 
 
 def _check_derive(columns: list[PlannedColumn], step: DeriveColumn) -> None:
@@ -219,7 +223,7 @@ def _check_derive(columns: list[PlannedColumn], step: DeriveColumn) -> None:
         case DatetimePartExpression():
             column = _require(columns, expression.column)
             if column.inferred_type != "datetime":
-                raise _Refused(
+                raise StepRefused(
                     f'"{column.name}" is {_label(column)}, so it has no '
                     f"{expression.part} to read.",
                     column.name,
@@ -227,7 +231,7 @@ def _check_derive(columns: list[PlannedColumn], step: DeriveColumn) -> None:
         case MapValuesExpression():
             column = _require(columns, expression.column)
             if column.inferred_type not in TEXTUAL_TYPES:
-                raise _Refused(
+                raise StepRefused(
                     f'"{column.name}" is {_label(column)}, and only categories can be remapped.',
                     column.name,
                 )
@@ -235,7 +239,7 @@ def _check_derive(columns: list[PlannedColumn], step: DeriveColumn) -> None:
 
 def _check_aggregate(columns: list[PlannedColumn], step: Aggregate) -> None:
     if len(step.group_by) > MAX_GROUP_COLUMNS:
-        raise _Refused(
+        raise StepRefused(
             f"Grouping by more than {MAX_GROUP_COLUMNS} columns leaves a table nobody can read."
         )
     _require_all(columns, step.group_by, "grouping")
@@ -250,13 +254,15 @@ def _check_aggregate(columns: list[PlannedColumn], step: Aggregate) -> None:
                 if column.inferred_type == "numeric"
                 else "Map its values into categories first."
             )
-            raise _Refused(f'"{name}" is {_label(column)} and cannot be grouped on. {hint}', name)
+            raise StepRefused(
+                f'"{name}" is {_label(column)} and cannot be grouped on. {hint}', name
+            )
         if column.is_probable_id:
-            raise _Refused(
+            raise StepRefused(
                 f'"{name}" looks like a row identifier, so each group would hold one row.', name
             )
         if column.is_high_cardinality:
-            raise _Refused(
+            raise StepRefused(
                 f'"{name}" has too many distinct values to group by. '
                 "Filter it down, or map its values into fewer categories first.",
                 name,
@@ -268,11 +274,11 @@ def _check_aggregate(columns: list[PlannedColumn], step: Aggregate) -> None:
             if aggregation.column is not None:
                 _require(columns, aggregation.column)
         elif aggregation.column is None:
-            raise _Refused(f'"{aggregation.function}" needs a column to summarise.')
+            raise StepRefused(f'"{aggregation.function}" needs a column to summarise.')
         else:
             column = _require(columns, aggregation.column)
             if column.inferred_type != "numeric":
-                raise _Refused(
+                raise StepRefused(
                     f'"{column.name}" is {_label(column)}, so there is no '
                     f"{aggregation.function} of it. Try: count.",
                     column.name,
@@ -280,7 +286,7 @@ def _check_aggregate(columns: list[PlannedColumn], step: Aggregate) -> None:
 
         name = aggregation_name(aggregation)
         if name in produced:
-            raise _Refused(f'Two results would both be called "{name}".', name)
+            raise StepRefused(f'Two results would both be called "{name}".', name)
         produced.add(name)
 
 
@@ -292,7 +298,7 @@ def _check_step(columns: list[PlannedColumn], step: TransformStep) -> None:
         case DropColumns():
             _require_all(columns, step.columns, "removal")
             if len(set(step.columns)) == len(columns):
-                raise _Refused("Removing every column would leave nothing to work with.")
+                raise StepRefused("Removing every column would leave nothing to work with.")
 
         case FilterRows():
             for clause in step.clauses:
@@ -314,13 +320,13 @@ def _check_step(columns: list[PlannedColumn], step: TransformStep) -> None:
             column = _require(columns, step.column)
             cleaned = step.to.strip()
             if cleaned == column.name:
-                raise _Refused(f'"{column.name}" is already called that.', column.name)
+                raise StepRefused(f'"{column.name}" is already called that.', column.name)
             _require_free(columns, step.to)
 
         case CastColumn():
             column = _require(columns, step.column)
             if column.inferred_type == "empty":
-                raise _Refused(
+                raise StepRefused(
                     f'"{column.name}" has no values to convert.', column.name
                 )
 
@@ -335,20 +341,20 @@ def _check_fill(columns: list[PlannedColumn], step: FillMissing) -> None:
     column = _require(columns, step.column)
 
     if step.method in {"median", "mean"} and column.inferred_type != "numeric":
-        raise _Refused(
+        raise StepRefused(
             f'"{column.name}" is {_label(column)} and has no {step.method}. '
             "Try: most frequent value, or a constant.",
             column.name,
         )
     if step.method in {"mode", "forward"} and column.inferred_type == "empty":
-        raise _Refused(
+        raise StepRefused(
             f'"{column.name}" is empty, so there is no value to carry into the gaps. '
             "Fill it with a constant instead.",
             column.name,
         )
     if step.method == "constant":
         if step.value is None:
-            raise _Refused("Filling with a constant needs a value.", column.name)
+            raise StepRefused("Filling with a constant needs a value.", column.name)
         if column.inferred_type != "empty":
             _check_value_coerces(column, step.value)
 
@@ -359,7 +365,7 @@ def validate_step(
     """Check one step against the schema as it stands, and say why not if it fails."""
     try:
         _check_step(columns, step)
-    except _Refused as refused:
+    except StepRefused as refused:
         return StepRefusal(
             step_index=step_index, op=step.op, column=refused.column, reason=refused.reason
         )
