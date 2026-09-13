@@ -13,6 +13,7 @@ from app.ai import (
     untraceable_numbers,
     verify,
 )
+from app.ai.insight_explainer import dataset_metrics
 from app.ai.llm_client import LLMError, default_client
 from app.analysis import analyze_dataset
 from app.config import settings
@@ -278,6 +279,40 @@ def test_traceability_and_causation_helpers_agree_with_their_names():
     assert untraceable_numbers("up 6%", {"ratio": 0.05}, []) == {"6%"}
     assert causal_claims("Spending causes revenue.")
     assert causal_claims("Spending does not cause revenue.") == []
+
+
+def test_a_number_the_prompt_shows_is_a_number_the_check_accepts():
+    """rows_behind_it is in the payload for every finding, so it has to verify.
+
+    Only some insight types repeat the sample size inside metrics. A model that
+    quoted it on the others was rejected for using a number it had been given.
+    """
+    trend = insight(metrics={"change_ratio": -0.316}, columns=["date", "revenue"])
+    trend.sample_size = 342
+
+    assert verify("It draws on 342 rows.", trend) is not None
+    # A row count that was never shown is still refused.
+    assert verify("It draws on 999 rows.", trend) is None
+
+
+def test_an_explanation_may_quote_the_size_of_the_file_it_describes():
+    """The payload shows the dataset block above every finding, so it must verify."""
+    profile, score, insights = dataset()
+    found = insights[0]
+    facts = dataset_metrics(profile, score)
+
+    assert verify(f"It rests on all {profile.rows} rows.", found, facts) is not None
+    # A file size that was never shown is still refused.
+    assert verify("It rests on all 7777 rows.", found, facts) is None
+
+
+def test_calling_a_result_unlikely_to_be_chance_is_not_a_causal_claim():
+    """The phrase list matches the verb; the object decides what it means."""
+    assert causal_claims("The gap is unlikely to be due to chance alone.") == []
+    assert causal_claims("This is not due to sampling.") == []
+    # A real claim beside the idiom is still caught.
+    assert causal_claims("Unlikely to be due to chance, since spend drives revenue.")
+    assert causal_claims("Revenue is due to spend.")
 
 
 def test_a_negative_metric_is_traceable_written_either_way():

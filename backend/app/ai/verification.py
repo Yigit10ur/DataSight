@@ -42,6 +42,17 @@ CAUSAL_PHRASES = (
 # are guarding against.
 NEGATIONS = ("not", "n't", "never", "no evidence", "cannot", "rather than", "without")
 
+# "unlikely to be due to chance" is a statement about sampling, not a claim that
+# one column acts on another — and it is how a writer says a result is significant.
+# The phrase list matches the verb; these say what the verb was applied to.
+STATISTICAL_IDIOMS = (
+    "due to chance",
+    "due to random chance",
+    "due to random variation",
+    "due to sampling",
+    "due to coincidence",
+)
+
 
 def renderings(metrics: dict) -> set[str]:
     """Every way a metric value could honestly be written."""
@@ -93,6 +104,10 @@ def causal_claims(text: str) -> list[str]:
 
     for sentence in SENTENCE_PATTERN.findall(text):
         lowered = sentence.lower()
+        # Drop the idiom rather than skip the sentence: a real claim sitting
+        # beside it in the same sentence still has to be caught.
+        for idiom in STATISTICAL_IDIOMS:
+            lowered = lowered.replace(idiom, " ")
         if not any(phrase in lowered for phrase in CAUSAL_PHRASES):
             continue
         if any(negation in lowered for negation in NEGATIONS):

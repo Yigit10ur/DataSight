@@ -65,8 +65,44 @@ def _grounded(text: str, metrics: dict, columns: list[str]) -> str | None:
     return text.strip()
 
 
-def verify(text: str, insight: Insight) -> str | None:
-    return _grounded(text, insight.metrics, insight.columns)
+def shown_metrics(insight: Insight) -> dict:
+    """Every number the prompt put in front of the model for one finding.
+
+    The payload carries rows_behind_it for every finding, but only some types
+    repeat it inside metrics. Checking against metrics alone rejected a model
+    that quoted a number the prompt had handed it.
+
+    Keyed under the payload's own name so it sits beside a metrics["sample_size"]
+    instead of overwriting it: both were shown, so both have to verify.
+    """
+    return {**insight.metrics, "rows_behind_it": insight.sample_size}
+
+
+def dataset_metrics(profile: DatasetProfile, score: QualityScore) -> dict:
+    """The file's own facts, which the prompt shows above every finding."""
+    return {
+        "rows": profile.rows,
+        "columns": profile.columns,
+        "missing_ratio": profile.missing_ratio,
+        "duplicate_rows": profile.duplicate_rows,
+        "score": score.score,
+        "out_of": 100,
+        **{dimension.name: dimension.score for dimension in score.dimensions},
+    }
+
+
+def verify(text: str, insight: Insight, dataset: dict | None = None) -> str | None:
+    """Check one explanation against every number the prompt showed for it.
+
+    The dataset facts belong in the pool because the payload puts them in front
+    of the model too: "342 of the 360 rows" quotes the finding's own sample size
+    and the file's row count, and only one of them used to be checkable.
+    """
+    shown = {
+        **{f"dataset.{name}": value for name, value in (dataset or {}).items()},
+        **shown_metrics(insight),
+    }
+    return _grounded(text, shown, insight.columns)
 
 
 def verify_summary(
@@ -74,16 +110,8 @@ def verify_summary(
 ) -> str | None:
     """Check the paragraph against everything it was allowed to draw on."""
     metrics = merge_metrics(
-        [insight.metrics for insight in insights],
-        {
-            "rows": profile.rows,
-            "columns": profile.columns,
-            "missing_ratio": profile.missing_ratio,
-            "duplicate_rows": profile.duplicate_rows,
-            "score": score.score,
-            "out_of": 100,
-            **{dimension.name: dimension.score for dimension in score.dimensions},
-        },
+        [shown_metrics(insight) for insight in insights],
+        dataset_metrics(profile, score),
     )
     columns = [schema.name for schema in profile.column_schemas]
     return _grounded(text, metrics, columns)
@@ -111,10 +139,11 @@ def explain_insights(
         except LLMError as error:
             return _unavailable(dataset_id, str(error))
 
+        dataset = dataset_metrics(profile, score)
         verified = [
             Explanation(insight_id=insight.id, text=text)
             for insight in explained
-            if (text := verify(answers.get(insight.id, ""), insight)) is not None
+            if (text := verify(answers.get(insight.id, ""), insight, dataset)) is not None
         ]
         _cache[key] = (verify_summary(summary, profile, score, explained), verified)
 
