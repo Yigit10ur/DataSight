@@ -50,12 +50,20 @@ def renderings(metrics: dict) -> set[str]:
     for value in metrics.values():
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             continue
-        written.update({str(value), number(value), percent(value), multiple(value)})
-        for template in NUMBER_FORMATS:
-            try:
-                written.add(template.format(value))
-            except (ValueError, TypeError):
-                continue
+        # Both signs of the same measurement. A falling trend is written "fell
+        # 31.6%", with the direction in the verb and the magnitude unsigned, while
+        # the metric behind it is -0.316. NUMBER_PATTERN does not capture a leading
+        # minus either, so rendering only the signed form leaves every negative
+        # metric unmatchable — including the ones the generator itself prints.
+        for signed in {value, abs(value)}:
+            written.update(
+                {str(signed), number(signed), percent(signed), multiple(signed)}
+            )
+            for template in NUMBER_FORMATS:
+                try:
+                    written.add(template.format(signed))
+                except (ValueError, TypeError):
+                    continue
 
     # 1,240 and 1240 are the same number written two ways.
     return written | {written_value.replace(",", "") for written_value in written}

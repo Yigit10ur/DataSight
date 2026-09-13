@@ -280,6 +280,21 @@ def test_traceability_and_causation_helpers_agree_with_their_names():
     assert causal_claims("Spending does not cause revenue.") == []
 
 
+def test_a_negative_metric_is_traceable_written_either_way():
+    """Direction in the verb or on the number: both quote the same measurement.
+
+    The generator writes the magnitude unsigned ("fell 31.6%" from -0.316), so a
+    check that only accepted the signed form rejected the sentence the analysis
+    engine itself produced.
+    """
+    metrics = {"change_ratio": -0.316}
+
+    assert untraceable_numbers("fell 31.6%", metrics, []) == set()
+    assert untraceable_numbers("changed by -31.6%", metrics, []) == set()
+    # The magnitude still has to be the one that was measured.
+    assert untraceable_numbers("fell 47.2%", metrics, []) == {"47.2%"}
+
+
 def summary_from(text: str):
     profile, score, insights = dataset()
     answer = json.dumps({"summary": text, "explanations": {}})

@@ -295,6 +295,7 @@ def test_no_message_contains_a_number_that_is_not_in_its_metrics():
                 ],
             }
         ),
+        falling_frame(),
     ]
 
     checked = 0
@@ -305,3 +306,41 @@ def test_no_message_contains_a_number_that_is_not_in_its_metrics():
             checked += 1
 
     assert checked >= 8
+
+
+def falling_frame() -> pd.DataFrame:
+    """A file whose findings are negative: a falling trend and an inverse pair.
+
+    Every other frame in this module rises, which is how a sign bug in the
+    number check survived — the generator's own messages print a magnitude
+    unsigned ("fell 31.6%") against a metric of -0.316.
+    """
+    rng = np.random.default_rng(3)
+    return pd.DataFrame(
+        {
+            "day": pd.date_range("2024-01-01", periods=300).astype(str),
+            "price": np.linspace(100, 20, 300) + rng.normal(0, 2, 300),
+            "units": np.linspace(20, 100, 300) + rng.normal(0, 2, 300),
+        }
+    )
+
+
+def test_a_negative_metric_is_traceable_from_the_message_that_prints_it():
+    insights = insights_for(falling_frame())
+
+    falling = [
+        insight
+        for insight in insights
+        if insight.metrics.get("trend") == "falling"
+    ]
+    inverse = [
+        insight
+        for insight in insights
+        if insight.insight_type == "correlation" and insight.metrics["pearson"] < 0
+    ]
+    assert falling, "the frame stopped producing a falling trend"
+    assert inverse, "the frame stopped producing a negative correlation"
+
+    for insight in falling + inverse:
+        leftover = untraceable_numbers(insight.message, insight.metrics, insight.columns)
+        assert leftover == set(), insight.message
