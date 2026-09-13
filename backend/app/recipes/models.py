@@ -171,7 +171,7 @@ class DatetimePartExpression(BaseModel):
 class MapValuesExpression(BaseModel):
     kind: Literal["map_values"] = "map_values"
     column: str
-    mapping: dict[str, str] = Field(min_length=1, max_length=MAX_MAPPING_SIZE)
+    mapping: dict[str, str] = Field(default_factory=dict, max_length=MAX_MAPPING_SIZE)
     # None leaves anything unmapped as it was.
     default: str | None = None
 

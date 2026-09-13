@@ -192,10 +192,16 @@ def _check_bin(columns: list[PlannedColumn], expression: BinExpression) -> None:
             f'"{column.name}" is {_label(column)}, and only numbers can be binned.', column.name
         )
 
-    if bool(expression.edges) == (expression.quantiles is not None):
+    has_edges = bool(expression.edges)
+    has_quantiles = expression.quantiles is not None
+    if has_edges and has_quantiles:
         raise StepRefused(
-            "Bins need either cut points or a number of equal-sized buckets, not both."
+            "Bins are cut either at your own points or into equal-sized buckets, not both."
         )
+    if not has_edges and not has_quantiles:
+        # Reached whenever a reader opens the form and has not typed the cut points
+        # yet, so it has to read as a prompt rather than as a contradiction.
+        raise StepRefused("Bins need cut points, or a number of equal-sized buckets.")
 
     if expression.edges:
         if len(expression.edges) < 2:
@@ -239,6 +245,10 @@ def _check_derive(columns: list[PlannedColumn], step: DeriveColumn) -> None:
                 raise StepRefused(
                     f'"{column.name}" is {_label(column)}, and only categories can be remapped.',
                     column.name,
+                )
+            if not expression.mapping:
+                raise StepRefused(
+                    "A mapping needs at least one value to replace.", column.name
                 )
 
 

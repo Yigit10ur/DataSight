@@ -247,7 +247,8 @@ def test_binning_needs_a_number_column_and_one_way_of_cutting_it():
             name="band", expression=BinExpression(column="revenue", edges=[0, 10], quantiles=4)
         )
     )
-    assert "not both" in refuse(
+    # Neither is a form nobody has filled in yet, and it reads as a prompt.
+    assert "Bins need cut points" in refuse(
         DeriveColumn(name="band", expression=BinExpression(column="revenue"))
     )
 
@@ -391,3 +392,14 @@ def test_no_step_can_reach_an_interpreter():
         source = path.read_text()
         for construct in forbidden:
             assert construct not in source, f"{path.name} reaches for {construct}"
+
+
+def test_an_empty_mapping_is_refused_with_a_reason_and_not_by_the_schema():
+    """A form the reader has not filled in yet has to come back readable.
+
+    Every other empty field produces a refusal that says what is missing. Leaving
+    this one to the schema would answer the same mistake with a validation error
+    nobody can act on.
+    """
+    step = DeriveColumn(name="region", expression=MapValuesExpression(column="city", mapping={}))
+    assert "needs at least one value" in refuse(step)
