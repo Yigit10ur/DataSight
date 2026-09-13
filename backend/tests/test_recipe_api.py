@@ -22,11 +22,13 @@ def upload(content: bytes = ORDERS, name: str = "orders.csv") -> str:
     return response.json()["dataset_id"]
 
 
-def preview(dataset_id: str, steps: list[dict], limit: int | None = None) -> dict:
+def preview(
+    dataset_id: str, steps: list[dict], limit: int | None = None, analyze: dict | None = None
+) -> dict:
     url = f"/api/datasets/{dataset_id}/recipe/preview"
     if limit is not None:
         url = f"{url}?limit={limit}"
-    response = client.post(url, json={"steps": steps})
+    response = client.post(url, json={"steps": steps, "analyze": analyze})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -244,3 +246,66 @@ def test_a_step_that_is_not_in_the_vocabulary_is_rejected_before_anything_runs()
     )
 
     assert response.status_code == 422
+
+
+def test_preview_answers_an_analysis_with_its_result_and_chart():
+    dataset_id = upload()
+    body = preview(
+        dataset_id,
+        [],
+        analyze={"op": "compare", "group_by": "city", "measure": "revenue"},
+    )
+
+    assert body["refusal"] is None
+    assert body["analysis"]["op"] == "compare"
+    assert body["analysis"]["comparison"]["group_column"] == "city"
+    assert body["analysis"]["chart"]["chart_type"] == "box"
+    # The rows it was computed from come back too.
+    assert body["preview"]["total_rows"] == 40
+
+
+def test_an_analysis_reads_the_shape_the_steps_made():
+    dataset_id = upload()
+    body = preview(
+        dataset_id,
+        [
+            {
+                "op": "aggregate",
+                "group_by": ["city"],
+                "aggregations": [
+                    {"function": "sum", "column": "revenue"},
+                    {"function": "sum", "column": "cost"},
+                ],
+            }
+        ],
+        analyze={"op": "relate", "left": "sum_revenue", "right": "sum_cost"},
+    )
+
+    assert body["refusal"] is None
+    assert body["analysis"]["correlation"]["sample_size"] == 3
+    assert body["analysis"]["chart"]["chart_type"] == "scatter"
+
+
+def test_an_analysis_the_data_cannot_carry_comes_back_as_a_refusal():
+    dataset_id = upload(GAPPED, "gapped.csv")
+    body = preview(
+        dataset_id, [], analyze={"op": "trend", "time": "city", "measure": "revenue"}
+    )
+
+    assert body["analysis"] is None
+    assert body["refusal"]["op"] == "trend"
+    assert "order of time" in body["refusal"]["reason"]
+
+
+def test_an_analysis_cannot_be_saved_as_a_dataset():
+    dataset_id = upload()
+    response = client.post(
+        f"/api/datasets/{dataset_id}/recipe/apply",
+        json={
+            "steps": [{"op": "limit_rows", "count": 10}],
+            "analyze": {"op": "distribution", "column": "revenue"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "answers with a finding rather than a table" in response.json()["detail"]

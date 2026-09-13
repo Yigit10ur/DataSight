@@ -2,8 +2,16 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from app.analysis.models import (
+    CategoricalSummary,
+    CorrelationPair,
+    GroupComparison,
+    NumericSummary,
+    Timeline,
+)
 from app.profiling.models import ColumnType
 from app.profiling.preview import DatasetPreview
+from app.visualization.models import ChartSpec
 
 MAX_RECIPE_STEPS = 20
 MAX_GROUP_COLUMNS = 2
@@ -222,14 +230,53 @@ TransformStep = Annotated[
 ]
 
 
+class Compare(BaseModel):
+    """Does this number differ across these groups?"""
+
+    op: Literal["compare"] = "compare"
+    group_by: str
+    measure: str
+
+
+class Relate(BaseModel):
+    """Do these two numbers move together?"""
+
+    op: Literal["relate"] = "relate"
+    left: str
+    right: str
+
+
+class Trend(BaseModel):
+    """How has this number moved over time?"""
+
+    op: Literal["trend"] = "trend"
+    time: str
+    measure: str
+
+
+class Distribution(BaseModel):
+    """What does this column's spread look like?"""
+
+    op: Literal["distribution"] = "distribution"
+    column: str
+
+
+AnalyzeStep = Annotated[
+    Compare | Relate | Trend | Distribution,
+    Field(discriminator="op"),
+]
+
+
 class Recipe(BaseModel):
     """What the reader built, in the order they built it.
 
-    A model rather than a bare list so that the terminal analyze step can be added
-    later without changing the shape of `steps`.
+    At most one analysis, and it comes after every step above it. It answers with a
+    statistical result rather than a table, which is the whole reason nothing can
+    follow it: there are no columns left for a later step to name.
     """
 
     steps: list[TransformStep] = Field(default_factory=list, max_length=MAX_RECIPE_STEPS)
+    analyze: AnalyzeStep | None = None
 
 
 class StepRefusal(BaseModel):
@@ -265,6 +312,24 @@ class RecipeValidation(BaseModel):
     refusal: StepRefusal | None = None
 
 
+class RecipeAnalysis(BaseModel):
+    """What a recipe's terminal step found, and the chart that shows it.
+
+    Exactly one of the five results is filled, decided by `op`. They are the models
+    the analysis layer already produces, unchanged — which is what lets the chart
+    layer draw them without knowing a recipe was involved.
+    """
+
+    op: str
+    columns: list[str]
+    chart: ChartSpec | None = None
+    comparison: GroupComparison | None = None
+    correlation: CorrelationPair | None = None
+    timeline: Timeline | None = None
+    numeric: NumericSummary | None = None
+    categorical: CategoricalSummary | None = None
+
+
 class RecipePreview(BaseModel):
     """What a recipe would produce, without producing it.
 
@@ -278,4 +343,6 @@ class RecipePreview(BaseModel):
     columns: list[PlannedColumn]
     preview: DatasetPreview
     reports: list[StepReport]
+    analysis: RecipeAnalysis | None
     refusal: StepRefusal | None
+

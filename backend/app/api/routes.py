@@ -109,6 +109,7 @@ def preview_recipe(dataset_id: str, recipe: Recipe, limit: int = 25) -> RecipePr
         columns=run.columns,
         preview=build_preview(dataset_id, run.frame, limit),
         reports=run.reports,
+        analysis=run.analysis,
         refusal=run.refusal,
     )
 
@@ -124,6 +125,16 @@ def apply_recipe(dataset_id: str, recipe: Recipe) -> DatasetProfile:
     stored = _require_dataset(dataset_id)
     if not recipe.steps:
         raise HTTPException(status_code=400, detail="A recipe with no steps changes nothing.")
+    if recipe.analyze is not None:
+        # An analysis answers with a finding, not a table, so there is nothing here
+        # to keep as a dataset. The rows it was computed from can be kept instead.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "An analysis answers with a finding rather than a table. Remove it to save "
+                "the rows it was computed from."
+            ),
+        )
 
     frame = dataset_store.frame_of(stored)
     run = run_recipe(frame, planned_columns(stored.profile.column_schemas), recipe)

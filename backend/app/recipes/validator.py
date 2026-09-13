@@ -3,15 +3,18 @@ import pandas as pd
 from app.profiling.schema_detector import BOOLEAN_TOKENS
 from app.recipes.models import (
     MAX_BIN_COUNT,
+    AnalyzeStep,
     MAX_GROUP_COLUMNS,
     Aggregate,
     ArithmeticExpression,
     BinExpression,
     CastColumn,
     ColumnOperand,
+    Compare,
     ConstantOperand,
     DatetimePartExpression,
     DeriveColumn,
+    Distribution,
     DropColumns,
     DropDuplicates,
     DropMissing,
@@ -22,12 +25,14 @@ from app.recipes.models import (
     Operand,
     PlannedColumn,
     Recipe,
+    Relate,
     RecipeValidation,
     RenameColumn,
     SelectColumns,
     SortRows,
     StepRefusal,
     TransformStep,
+    Trend,
 )
 from app.recipes.schema import aggregation_name, find_column, plan_schema
 
@@ -359,6 +364,81 @@ def _check_fill(columns: list[PlannedColumn], step: FillMissing) -> None:
             _check_value_coerces(column, step.value)
 
 
+def _require_measure(columns: list[PlannedColumn], name: str, what: str) -> PlannedColumn:
+    column = _require(columns, name)
+    if column.inferred_type != "numeric":
+        raise StepRefused(f'"{name}" is {_label(column)}, so there is nothing to {what}.', name)
+    return column
+
+
+def _check_analyze(columns: list[PlannedColumn], step: AnalyzeStep) -> None:
+    match step:
+        case Compare():
+            group = _require(columns, step.group_by)
+            if group.inferred_type not in GROUPABLE_TYPES:
+                raise StepRefused(
+                    f'"{group.name}" is {_label(group)}, so it has no groups to compare across.',
+                    group.name,
+                )
+            if group.is_probable_id:
+                raise StepRefused(
+                    f'"{group.name}" looks like a row identifier, so every group '
+                    "would hold one row.",
+                    group.name,
+                )
+            if group.is_high_cardinality:
+                raise StepRefused(
+                    f'"{group.name}" has too many distinct values to compare across.',
+                    group.name,
+                )
+            _require_measure(columns, step.measure, "compare")
+
+        case Relate():
+            if step.left == step.right:
+                raise StepRefused(
+                    f'"{step.left}" relates to itself perfectly, which says nothing.', step.left
+                )
+            _require_measure(columns, step.left, "relate")
+            _require_measure(columns, step.right, "relate")
+
+        case Trend():
+            time = _require(columns, step.time)
+            if time.inferred_type != "datetime":
+                raise StepRefused(
+                    f'"{time.name}" is {_label(time)}, so it cannot put anything in order '
+                    "of time. Convert it to a date first.",
+                    time.name,
+                )
+            _require_measure(columns, step.measure, "follow over time")
+
+        case Distribution():
+            column = _require(columns, step.column)
+            if column.inferred_type in {"text", "empty"}:
+                raise StepRefused(
+                    f'"{column.name}" is {_label(column)}, and it has no spread to describe.',
+                    column.name,
+                )
+            if column.inferred_type == "datetime":
+                raise StepRefused(
+                    f'"{column.name}" is a date column. Ask for a trend over it, or take a '
+                    "part of it first.",
+                    column.name,
+                )
+
+
+def validate_analyze(
+    columns: list[PlannedColumn], step: AnalyzeStep, step_index: int = 0
+) -> StepRefusal | None:
+    """Check the terminal analysis against the schema the steps above it leave."""
+    try:
+        _check_analyze(columns, step)
+    except StepRefused as refused:
+        return StepRefusal(
+            step_index=step_index, op=step.op, column=refused.column, reason=refused.reason
+        )
+    return None
+
+
 def validate_step(
     columns: list[PlannedColumn], step: TransformStep, step_index: int = 0
 ) -> StepRefusal | None:
@@ -388,14 +468,25 @@ def validate_recipe(columns: list[PlannedColumn], recipe: Recipe) -> RecipeValid
             return RecipeValidation(
                 columns=columns,
                 accepted=index,
-                refusal=_note_removal(refusal, columns, started_with),
+                refusal=note_removal(refusal, columns, started_with),
             )
         columns = plan_schema(columns, step)
+
+    if recipe.analyze is not None:
+        # The analysis is checked against what the steps leave behind, which is the
+        # only schema it could ever mean anything against.
+        refusal = validate_analyze(columns, recipe.analyze, len(recipe.steps))
+        if refusal is not None:
+            return RecipeValidation(
+                columns=columns,
+                accepted=len(recipe.steps),
+                refusal=note_removal(refusal, columns, started_with),
+            )
 
     return RecipeValidation(columns=columns, accepted=len(recipe.steps), refusal=None)
 
 
-def _note_removal(
+def note_removal(
     refusal: StepRefusal, columns: list[PlannedColumn], started_with: set[str]
 ) -> StepRefusal:
     """Say so when the missing column is one an earlier step took away.

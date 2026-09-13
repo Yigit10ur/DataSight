@@ -2,16 +2,24 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from app.analysis.categorical_analysis import analyze_categorical
+from app.analysis.correlation_analysis import MIN_SAMPLE_SIZE, analyze_correlations
+from app.analysis.datetime_analysis import MIN_TIMELINE_POINTS, analyze_timeline
+from app.analysis.group_analysis import MIN_GROUP_SIZE, analyze_groups
 from app.analysis.numbers import numeric_values
+from app.analysis.numeric_analysis import analyze_numeric
 from app.recipes.models import (
     Aggregate,
     Aggregation,
+    AnalyzeStep,
     ArithmeticExpression,
     BinExpression,
     CastColumn,
     ColumnOperand,
+    Compare,
     DatetimePartExpression,
     DeriveColumn,
+    Distribution,
     DropColumns,
     DropDuplicates,
     DropMissing,
@@ -23,14 +31,30 @@ from app.recipes.models import (
     Operand,
     PlannedColumn,
     Recipe,
+    RecipeAnalysis,
+    Relate,
     RenameColumn,
     SelectColumns,
     SortRows,
     StepRefusal,
     StepReport,
     TransformStep,
+    Trend,
 )
 from app.recipes.schema import aggregation_name, find_column, plan_schema
+from app.recipes.validator import (
+    StepRefused,
+    note_removal,
+    validate_analyze,
+    validate_step,
+)
+from app.visualization.chart_generator import (
+    bar_chart,
+    box_chart,
+    histogram_chart,
+    line_chart,
+    scatter_chart,
+)
 from app.recipes.validator import StepRefused, validate_step
 
 # How much of a column may fail to convert before a cast is refused instead of
@@ -59,6 +83,84 @@ WHOLE_TABLE_FUNCTIONS = {
 }
 
 
+def _analyze(
+    frame: pd.DataFrame, columns: list[PlannedColumn], step: AnalyzeStep
+) -> RecipeAnalysis:
+    """Run the terminal analysis over what the steps left.
+
+    Every one of these can come back with nothing — too few groups big enough to
+    compare, too few periods to call a trend, two columns that never vary together.
+    That is not a mistake in the recipe and not a schema problem, so it is refused
+    here, with the data's reason rather than the schema's.
+    """
+    match step:
+        case Compare():
+            comparison = analyze_groups(frame, step.group_by, step.measure)
+            if comparison is None:
+                raise StepRefused(
+                    f'Fewer than two groups of "{step.group_by}" have the {MIN_GROUP_SIZE} '
+                    "rows a comparison needs.",
+                    step.group_by,
+                )
+            return RecipeAnalysis(
+                op=step.op,
+                columns=[step.group_by, step.measure],
+                comparison=comparison,
+                chart=box_chart(comparison),
+            )
+
+        case Relate():
+            pairs = analyze_correlations(frame, [step.left, step.right])
+            if not pairs:
+                raise StepRefused(
+                    f'"{step.left}" and "{step.right}" have fewer than {MIN_SAMPLE_SIZE} rows '
+                    "where both have a value, or one of them never varies.",
+                    step.left,
+                )
+            return RecipeAnalysis(
+                op=step.op,
+                columns=[step.left, step.right],
+                correlation=pairs[0],
+                chart=scatter_chart(frame, pairs[0]),
+            )
+
+        case Trend():
+            timeline = analyze_timeline(frame, step.time, step.measure)
+            if timeline is None:
+                raise StepRefused(
+                    f'There are fewer than {MIN_TIMELINE_POINTS} periods of "{step.time}" '
+                    f'with a value in "{step.measure}", which is not enough to be a trend.',
+                    step.time,
+                )
+            return RecipeAnalysis(
+                op=step.op,
+                columns=[step.time, step.measure],
+                timeline=timeline,
+                chart=line_chart(timeline),
+            )
+
+        case Distribution():
+            series = frame[step.column]
+            column = find_column(columns, step.column)
+            if column is not None and column.inferred_type == "numeric":
+                summary = analyze_numeric(series)
+                return RecipeAnalysis(
+                    op=step.op,
+                    columns=[step.column],
+                    numeric=summary,
+                    chart=histogram_chart(summary),
+                )
+            categorical = analyze_categorical(series)
+            return RecipeAnalysis(
+                op=step.op,
+                columns=[step.column],
+                categorical=categorical,
+                chart=bar_chart(categorical),
+            )
+
+    raise ValueError(f"Unknown analysis: {step}")  # pragma: no cover
+
+
 @dataclass(frozen=True)
 class RecipeRun:
     """The result of running a recipe as far as it would go.
@@ -70,6 +172,8 @@ class RecipeRun:
     frame: pd.DataFrame
     columns: list[PlannedColumn]
     reports: list[StepReport]
+    # What the terminal analysis found, when the recipe has one and it ran.
+    analysis: RecipeAnalysis | None
     refusal: StepRefusal | None
 
 
@@ -427,13 +531,24 @@ def run_recipe(frame: pd.DataFrame, columns: list[PlannedColumn], recipe: Recipe
     some refusals need the data — how much of a column a conversion would destroy is
     not a question the schema can answer — and because stopping mid-recipe has to
     leave a frame behind either way.
+
+    The analysis, when there is one, runs last against what the steps left, and the
+    frame comes back either way: a reader whose analysis found nothing still has the
+    rows it was looking at.
     """
     reports: list[StepReport] = []
+    started_with = {column.name for column in columns}
 
     for index, step in enumerate(recipe.steps):
         refusal = validate_step(columns, step, index)
         if refusal is not None:
-            return RecipeRun(frame=frame, columns=columns, reports=reports, refusal=refusal)
+            return RecipeRun(
+                frame=frame,
+                columns=columns,
+                reports=reports,
+                analysis=None,
+                refusal=note_removal(refusal, columns, started_with),
+            )
 
         rows_in = len(frame)
         try:
@@ -443,6 +558,7 @@ def run_recipe(frame: pd.DataFrame, columns: list[PlannedColumn], recipe: Recipe
                 frame=frame,
                 columns=columns,
                 reports=reports,
+                analysis=None,
                 refusal=StepRefusal(
                     step_index=index, op=step.op, column=refused.column, reason=refused.reason
                 ),
@@ -455,4 +571,32 @@ def run_recipe(frame: pd.DataFrame, columns: list[PlannedColumn], recipe: Recipe
             )
         )
 
-    return RecipeRun(frame=frame, columns=columns, reports=reports, refusal=None)
+    if recipe.analyze is None:
+        return RecipeRun(
+            frame=frame, columns=columns, reports=reports, analysis=None, refusal=None
+        )
+
+    index = len(recipe.steps)
+    refusal = validate_analyze(columns, recipe.analyze, index)
+    if refusal is None:
+        try:
+            analysis = _analyze(frame, columns, recipe.analyze)
+        except StepRefused as refused:
+            refusal = StepRefusal(
+                step_index=index,
+                op=recipe.analyze.op,
+                column=refused.column,
+                reason=refused.reason,
+            )
+        else:
+            return RecipeRun(
+                frame=frame, columns=columns, reports=reports, analysis=analysis, refusal=None
+            )
+
+    return RecipeRun(
+        frame=frame,
+        columns=columns,
+        reports=reports,
+        analysis=None,
+        refusal=note_removal(refusal, columns, started_with),
+    )
