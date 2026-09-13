@@ -6,10 +6,11 @@ import { ChartGrid } from "@/components/ChartGrid";
 import { ColumnTable } from "@/components/ColumnTable";
 import { ExplanationsToggle } from "@/components/ExplanationsToggle";
 import { InsightList } from "@/components/InsightList";
-import { PreviewTable } from "@/components/PreviewTable";
+import { LineageTrail } from "@/components/LineageTrail";
 import { ProfileOverview } from "@/components/ProfileOverview";
 import { QualityIssues } from "@/components/QualityIssues";
 import { QualityScore } from "@/components/QualityScore";
+import { RecipeWorkbench } from "@/components/RecipeWorkbench";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { useExplanationsEnabled } from "@/lib/explanations";
@@ -17,13 +18,14 @@ import {
   fetchCharts,
   fetchExplanations,
   fetchInsights,
-  fetchPreview,
+  fetchLineage,
+  fetchProfile,
   fetchQuality,
   uploadDataset,
   type ChartSpec,
-  type DatasetPreview,
   type DatasetProfile,
   type Insight,
+  type Lineage,
   type QualityIssue,
   type QualityScore as Score,
 } from "@/lib/api";
@@ -39,13 +41,13 @@ const NOTHING = new Map<string, string>();
 
 export default function Home() {
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
-  const [preview, setPreview] = useState<DatasetPreview | null>(null);
   const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [reading, setReading] = useState<Reading | null>(null);
   const [issues, setIssues] = useState<QualityIssue[]>([]);
   const [score, setScore] = useState<Score | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [lineage, setLineage] = useState<Lineage | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const explanationsEnabled = useExplanationsEnabled();
@@ -87,35 +89,40 @@ export default function Home() {
     };
   }, [datasetId, explanationsEnabled]);
 
-  async function handleFile(file: File) {
-    setIsUploading(true);
+  /** Put one dataset on the screen, whether it was uploaded, shaped or stepped back to. */
+  async function show(shown: DatasetProfile) {
+    const id = shown.dataset_id;
+    const [charted, quality, found, trail] = await Promise.all([
+      fetchCharts(id),
+      fetchQuality(id),
+      fetchInsights(id),
+      fetchLineage(id),
+    ]);
+    setCharts(charted.charts);
+    setIssues(quality.issues);
+    setScore(quality.score);
+    setInsights(found.insights);
+    setLineage(trail);
+    // Set last: it is what starts the explanation request, and there is no point
+    // asking for a reading of findings that are not on the screen yet.
+    setProfile(shown);
+  }
+
+  async function load(fetching: () => Promise<DatasetProfile>) {
+    setIsBusy(true);
     setError(null);
     try {
-      const uploaded = await uploadDataset(file);
-      const [previewed, charted, quality, found] = await Promise.all([
-        fetchPreview(uploaded.dataset_id),
-        fetchCharts(uploaded.dataset_id),
-        fetchQuality(uploaded.dataset_id),
-        fetchInsights(uploaded.dataset_id),
-      ]);
-      setPreview(previewed);
-      setCharts(charted.charts);
-      setIssues(quality.issues);
-      setScore(quality.score);
-      setInsights(found.insights);
-      // Set last: it is what starts the explanation request, and there is no point
-      // asking for a reading of findings that are not on the screen yet.
-      setProfile(uploaded);
+      await show(await fetching());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Upload failed.");
+      setError(cause instanceof Error ? cause.message : "That did not work.");
       setProfile(null);
-      setPreview(null);
       setCharts([]);
       setIssues([]);
       setScore(null);
       setInsights([]);
+      setLineage(null);
     } finally {
-      setIsUploading(false);
+      setIsBusy(false);
     }
   }
 
@@ -124,7 +131,7 @@ export default function Home() {
   const remainingCharts = charts.filter((chart) => !charted.has(chart.id));
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-12">
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">AI Data Insight Engine</h1>
@@ -138,7 +145,7 @@ export default function Home() {
         </div>
       </header>
 
-      <UploadDropzone onFile={handleFile} isUploading={isUploading} />
+      <UploadDropzone onFile={(file) => load(() => uploadDataset(file))} isUploading={isBusy} />
 
       {error && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--flag-warning)]">
@@ -148,8 +155,14 @@ export default function Home() {
 
       {profile && (
         <div className="flex flex-col gap-6">
-          <div className="text-sm text-[var(--text-secondary)]">
+          <div className="flex flex-col gap-1 text-sm text-[var(--text-secondary)]">
             <span className="font-medium text-[var(--foreground)]">{profile.filename}</span>
+            {lineage && (
+              <LineageTrail
+                lineage={lineage}
+                onSelect={(id) => load(() => fetchProfile(id))}
+              />
+            )}
           </div>
           <ProfileOverview profile={profile} />
           {score && <QualityScore score={score} />}
@@ -166,7 +179,11 @@ export default function Home() {
             title={remainingCharts.length === charts.length ? "Charts" : "Other charts"}
           />
           <ColumnTable columns={profile.column_schemas} />
-          {preview && <PreviewTable preview={preview} />}
+          <RecipeWorkbench
+            key={profile.dataset_id}
+            profile={profile}
+            onDerived={(derived) => load(async () => derived)}
+          />
         </div>
       )}
     </main>
