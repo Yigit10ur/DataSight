@@ -257,6 +257,11 @@ and asks for this one afterwards, so a slow model — or no model — never hold
 the screen. Repeat requests for the same findings are served from a cache: the answer would
 not change, and every call costs money.
 
+Two requests for the same findings that arrive *together* wait behind one lock rather than
+both proceeding. Reading a cache without one is only safe while callers arrive apart, and a
+second open tab or a refresh taken while the first answer is still coming is enough to break
+that — at which point the cache saves nothing and the file is explained twice at full price.
+
 ## Frontend
 
 The page now leads with meaning rather than with charts:
@@ -276,6 +281,8 @@ data preview
 | `components/QualityScore.tsx` | Score and dimension bars |
 | `components/InsightList.tsx` | Summary, ranked findings, empty state |
 | `components/InsightCard.tsx` | One finding, its explanation, its caveats, its chart |
+| `components/ExplanationsToggle.tsx` | The switch that decides whether a model is asked at all |
+| `lib/explanations.ts` | Where that choice is kept and remembered |
 
 A chart shown inside a finding is removed from the grid below, and the grid's heading changes
 to "Other charts" when that has happened. Inside a card the chart's own title is hidden: the
@@ -283,6 +290,24 @@ sentence directly above it is already the caption.
 
 When nothing stands out the list says so and says why, rather than rendering empty. When the
 model wrote a summary, that paragraph replaces the fallback — the two are never both shown.
+
+### The switch
+
+Explanations sit behind a switch in the header, beside the theme toggle, and it is **off until
+someone turns it on**. It governs the request rather than the display: turned off, the
+dashboard never asks for `/explanations` at all, so a reader who came for the profile, the
+quality score, the findings and the charts is billed nothing. None of those depend on it —
+they are computed in Python — which is why spending is opted into rather than out of.
+
+Only an explicit choice turns it on. A reader who has never touched it, a browser that refuses
+storage, and a stored value written by some later version all land on the setting that costs
+nothing.
+
+Turned back on, it explains the dataset already on the screen instead of asking for the file
+again. The request therefore lives in an effect keyed on the dataset and the switch, not in
+the upload handler, and an explanation is held together with the id of the dataset it was
+written about. That pairing is what lets the switch hide and restore prose without fetching it
+twice, and what keeps the previous file's paragraph off the screen while the next one loads.
 
 ## Running it
 
@@ -293,8 +318,10 @@ As in MVP 1, plus an optional key:
 DATASIGHT_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Without it, everything works except the prose. `backend/.env.example` lists the optional
-overrides (`DATASIGHT_EXPLANATION_MODEL`, default `claude-sonnet-5`, and
+Without it, everything works except the prose. With it, the prose still does not appear until
+the header switch is turned on: the key makes explanations possible, not automatic, and the
+browser remembers the choice. `backend/.env.example` lists the optional overrides
+(`DATASIGHT_EXPLANATION_MODEL`, default `claude-sonnet-5`, and
 `DATASIGHT_EXPLANATION_MAX_INSIGHTS`, default 8).
 
 The file is located from `app/config.py` rather than from the working directory, so it is found
@@ -308,7 +335,7 @@ a puzzle with no error to read.
 cd backend && .venv/bin/python -m pytest tests -q
 ```
 
-188 tests, up from 71. The AI layer is tested against an injected fake client; **the suite
+189 tests, up from 71. The AI layer is tested against an injected fake client; **the suite
 makes no network calls and needs no API key.** That is enforced rather than assumed: a fixture
 in `tests/conftest.py` clears the configured key for every test. Before it existed the promise
 held only while no key was present — a key in the developer's own `.env` reached the endpoint
@@ -320,6 +347,8 @@ than a behaviour:
 - `test_no_message_contains_a_number_that_is_not_in_its_metrics` — the generator cannot print
   a number it did not compute.
 - `test_no_row_of_the_dataset_reaches_the_prompt` — the data does not leave the machine.
+- `test_findings_asked_about_twice_at_once_are_still_explained_once` — the cache is a promise
+  about money, and a promise that only holds when requests are politely spaced is not one.
 
 ## What the live path showed
 
