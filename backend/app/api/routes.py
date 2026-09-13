@@ -1,4 +1,9 @@
+from pathlib import Path
+from urllib.parse import quote
+
+import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 
 from app.ai import ExplanationCollection, explain_insights
 from app.analysis import DatasetAnalysis, analyze_dataset
@@ -8,7 +13,14 @@ from app.insights import InsightCollection, build_insights
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
 from app.quality import QualityReport, check_dataset_quality
 from app.recipes import Recipe, RecipePreview, planned_columns, run_recipe
-from app.store import DatasetLimit, Lineage, LineageEntry, StoredDataset, dataset_store
+from app.store import (
+    DatasetLimit,
+    Lineage,
+    LineageEntry,
+    StoredDataset,
+    dataset_store,
+    steps_phrase,
+)
 from app.visualization import ChartCollection, build_charts
 
 router = APIRouter()
@@ -155,6 +167,59 @@ def apply_recipe(dataset_id: str, recipe: Recipe) -> DatasetProfile:
     except DatasetLimit as limit:
         raise HTTPException(status_code=409, detail=str(limit)) from limit
     return profile
+
+
+# Written out in slices rather than as one string, so that exporting a large file
+# does not need a second copy of it in memory before the first byte is sent.
+EXPORT_CHUNK_ROWS = 5_000
+
+
+def _csv_chunks(frame: pd.DataFrame):
+    yield frame.head(0).to_csv(index=False)
+    for start in range(0, len(frame), EXPORT_CHUNK_ROWS):
+        yield frame.iloc[start : start + EXPORT_CHUNK_ROWS].to_csv(index=False, header=False)
+
+
+def _download_name(stored: StoredDataset, step_count: int) -> str:
+    """Name the file after the one it came from and how far it has come.
+
+    The dataset's own name reads as provenance — "orders.csv (5 steps)" — which is
+    right on a screen and wrong on a disk. This turns it back into a filename.
+    """
+    root = dataset_store.lineage(stored)[0]
+    stem = Path(root.filename).stem or "dataset"
+    steps = dataset_store.total_steps(stored, step_count)
+    return f"{stem}.csv" if steps == 0 else f"{stem} ({steps_phrase(steps)}).csv"
+
+
+def _attachment(name: str) -> str:
+    """A Content-Disposition that survives a name the ASCII header cannot hold."""
+    plain = "".join(
+        character for character in name if character.isascii() and character not in '"\\\r\n'
+    )
+    return f"attachment; filename=\"{plain or 'dataset.csv'}\"; filename*=UTF-8''{quote(name)}"
+
+
+@router.post("/datasets/{dataset_id}/recipe/export")
+def export_recipe(dataset_id: str, recipe: Recipe) -> StreamingResponse:
+    """Send the rows a recipe produces as a CSV, storing nothing.
+
+    An empty recipe exports the dataset as it stands, which is what the button does
+    when a reader has not shaped anything. A terminal analysis is dropped rather than
+    run: a CSV is rows, and a finding is not one.
+    """
+    stored = _require_dataset(dataset_id)
+    frame = dataset_store.frame_of(stored)
+    rows_only = Recipe(steps=recipe.steps)
+    run = run_recipe(frame, planned_columns(stored.profile.column_schemas), rows_only)
+    if run.refusal is not None:
+        raise HTTPException(status_code=400, detail=run.refusal.model_dump())
+
+    return StreamingResponse(
+        _csv_chunks(run.frame),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": _attachment(_download_name(stored, len(recipe.steps)))},
+    )
 
 
 @router.get("/datasets/{dataset_id}/lineage", response_model=Lineage)

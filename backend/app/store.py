@@ -26,6 +26,11 @@ class DatasetLimit(Exception):
     """Raised when a dataset cannot be derived because a cap is in the way."""
 
 
+def steps_phrase(count: int) -> str:
+    """How far a dataset has come from its file, in words. One place, two readers."""
+    return f"{count} step" if count == 1 else f"{count} steps"
+
+
 @dataclass(frozen=True)
 class StoredDataset:
     dataset_id: str
@@ -147,8 +152,15 @@ class DatasetStore:
         total = step_count + sum(
             len(dataset.recipe.steps) for dataset in chain if dataset.recipe is not None
         )
-        plural = "step" if total == 1 else "steps"
-        return f"{chain[0].filename} ({total} {plural})"
+        return f"{chain[0].filename} ({steps_phrase(total)})"
+
+    def total_steps(self, stored: StoredDataset, extra: int = 0) -> int:
+        """How many steps separate this dataset from the file it came from."""
+        return extra + sum(
+            len(dataset.recipe.steps)
+            for dataset in self.lineage(stored)
+            if dataset.recipe is not None
+        )
 
     def _child_count(self, parent_id: str) -> int:
         return sum(1 for stored in self._datasets.values() if stored.parent_id == parent_id)

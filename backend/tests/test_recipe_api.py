@@ -309,3 +309,85 @@ def test_an_analysis_cannot_be_saved_as_a_dataset():
 
     assert response.status_code == 400
     assert "answers with a finding rather than a table" in response.json()["detail"]
+
+
+def export(dataset_id: str, steps: list[dict], analyze: dict | None = None):
+    return client.post(
+        f"/api/datasets/{dataset_id}/recipe/export",
+        json={"steps": steps, "analyze": analyze},
+    )
+
+
+def test_exporting_an_empty_recipe_sends_the_dataset_as_it_stands():
+    dataset_id = upload(GAPPED, "gapped.csv")
+    response = export(dataset_id, [])
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text == "city,revenue\nAnkara,100.0\nIzmir,\nAnkara,300.0\n"
+
+
+def test_exporting_sends_the_rows_the_recipe_makes():
+    dataset_id = upload()
+    response = export(
+        dataset_id,
+        [
+            {
+                "op": "aggregate",
+                "group_by": ["city"],
+                "aggregations": [{"function": "count"}],
+            },
+            {"op": "sort_rows", "columns": ["city"]},
+        ],
+    )
+
+    assert response.text == "city,row_count\nAnkara,10\nBursa,10\nIzmir,20\n"
+
+
+def test_the_download_is_named_after_the_file_and_how_far_it_has_come():
+    dataset_id = upload()
+
+    assert 'filename="orders.csv"' in export(dataset_id, []).headers["content-disposition"]
+    named = export(dataset_id, [{"op": "limit_rows", "count": 5}]).headers["content-disposition"]
+    assert 'filename="orders (1 step).csv"' in named
+
+    # And it counts the steps already behind a derived dataset, not only the new ones.
+    derived = apply(dataset_id, [{"op": "limit_rows", "count": 20}]).json()["dataset_id"]
+    onward = export(derived, [{"op": "limit_rows", "count": 5}]).headers["content-disposition"]
+    assert 'filename="orders (2 steps).csv"' in onward
+
+
+def test_a_name_the_header_cannot_hold_is_sent_both_ways():
+    dataset_id = upload(GAPPED, "siparişler.csv")
+    disposition = export(dataset_id, []).headers["content-disposition"]
+
+    # An ASCII fallback for readers that ignore the encoded form, and the real name
+    # for the ones that do not.
+    assert 'filename="sipariler.csv"' in disposition
+    assert "filename*=UTF-8''sipari%C5%9Fler.csv" in disposition
+
+
+def test_a_refused_step_stops_the_export_and_says_why():
+    dataset_id = upload()
+    response = export(dataset_id, [{"op": "sort_rows", "columns": ["margin"]}])
+
+    assert response.status_code == 400
+    assert "margin" in response.json()["detail"]["reason"]
+
+
+def test_a_question_has_no_bearing_on_the_rows_that_are_exported():
+    """A CSV is rows. The analysis is dropped rather than run."""
+    dataset_id = upload()
+    with_question = export(
+        dataset_id,
+        [{"op": "limit_rows", "count": 3}],
+        analyze={"op": "distribution", "column": "revenue"},
+    )
+    without = export(dataset_id, [{"op": "limit_rows", "count": 3}])
+
+    assert with_question.status_code == 200
+    assert with_question.text == without.text
+
+
+def test_exporting_a_dataset_that_is_not_there_is_a_404():
+    assert client.post("/api/datasets/nope/recipe/export", json={"steps": []}).status_code == 404

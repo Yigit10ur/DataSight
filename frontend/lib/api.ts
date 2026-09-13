@@ -441,3 +441,47 @@ export function applyRecipe(datasetId: string, recipe: Recipe): Promise<DatasetP
 export function fetchLineage(datasetId: string): Promise<Lineage> {
   return request<Lineage>(`/api/datasets/${datasetId}/lineage`);
 }
+
+/** Read the name the server chose, preferring the form that survives non-ASCII. */
+function readFilename(disposition: string | null): string {
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      // A name that will not decode is no reason to lose the download.
+    }
+  }
+  return disposition?.match(/filename="([^"]+)"/i)?.[1] ?? "dataset.csv";
+}
+
+/**
+ * The rows a recipe produces, as a file.
+ *
+ * The whole CSV passes through memory here rather than streaming to disk, which is
+ * what a fetch can do and a plain link cannot: the rows being downloaded are the
+ * ones the reader is looking at, and those exist only as an unsaved recipe.
+ */
+export async function exportRecipe(
+  datasetId: string,
+  recipe: Recipe,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${API_URL}/api/datasets/${datasetId}/recipe/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(recipe),
+  });
+
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then((body) => readDetail(body?.detail))
+      .catch(() => null);
+    throw new Error(detail ?? `Request failed with status ${response.status}`);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: readFilename(response.headers.get("Content-Disposition")),
+  };
+}

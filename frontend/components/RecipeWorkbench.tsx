@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   applyRecipe,
+  exportRecipe,
   previewRecipe,
   type AnalyzeStep,
   type ColumnSchema,
@@ -48,7 +49,8 @@ export function RecipeWorkbench({
   const [analyze, setAnalyze] = useState<AnalyzeStep | null>(null);
   const [result, setResult] = useState<RecipePreview | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const datasetId = profile.dataset_id;
   const sourceColumns = useMemo(() => profile.column_schemas.map(planned), [profile]);
@@ -63,7 +65,7 @@ export function RecipeWorkbench({
       .catch(() => {
         // The panel keeps what it had rather than emptying the table under a reader
         // who is mid-edit; the next keystroke asks again.
-        if (active) setSaveError(null);
+        if (active) setError(null);
       });
 
     return () => {
@@ -72,18 +74,38 @@ export function RecipeWorkbench({
   }, [datasetId, steps, analyze]);
 
   function add(step: RecipeStep | AnalyzeStep, terminal: boolean) {
-    setSaveError(null);
+    setError(null);
     if (terminal) setAnalyze(step as AnalyzeStep);
     else setSteps((current) => [...current, step as RecipeStep]);
   }
 
+  async function download() {
+    setIsDownloading(true);
+    setError(null);
+    try {
+      const { blob, filename } = await exportRecipe(datasetId, { steps, analyze: null });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The rows could not be downloaded.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   async function save() {
     setIsSaving(true);
-    setSaveError(null);
+    setError(null);
     try {
       onDerived(await applyRecipe(datasetId, { steps, analyze: null }));
     } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : "The recipe could not be saved.");
+      setError(cause instanceof Error ? cause.message : "The recipe could not be saved.");
     } finally {
       setIsSaving(false);
     }
@@ -109,8 +131,10 @@ export function RecipeWorkbench({
           }
           onRemoveAnalysis={() => setAnalyze(null)}
           onSave={save}
+          onDownload={download}
           isSaving={isSaving}
-          saveError={saveError}
+          isDownloading={isDownloading}
+          error={error}
         />
 
         {result && (

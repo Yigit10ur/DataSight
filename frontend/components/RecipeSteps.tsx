@@ -22,8 +22,10 @@ export function RecipeSteps({
   onRemove,
   onRemoveAnalysis,
   onSave,
+  onDownload,
   isSaving,
-  saveError,
+  isDownloading,
+  error,
 }: {
   steps: RecipeStep[];
   analyze: AnalyzeStep | null;
@@ -35,10 +37,14 @@ export function RecipeSteps({
   onRemove: (index: number) => void;
   onRemoveAnalysis: () => void;
   onSave: () => void;
+  onDownload: () => void;
   isSaving: boolean;
-  saveError: string | null;
+  isDownloading: boolean;
+  error: string | null;
 }) {
   const canSave = steps.length > 0 && refusal === null && analyze === null;
+  // Downloading needs no steps: with none, it is the dataset as it stands.
+  const canDownload = refusal === null;
 
   return (
     <section className="flex w-full shrink-0 flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 lg:w-72">
@@ -113,13 +119,21 @@ export function RecipeSteps({
         >
           {isSaving ? "Saving…" : "Save as a dataset"}
         </button>
+        <button
+          type="button"
+          disabled={!canDownload || isDownloading}
+          onClick={onDownload}
+          className="cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isDownloading ? "Preparing…" : "Download CSV"}
+        </button>
         {analyze !== null && (
           <p className="text-xs text-[var(--text-muted)]">
             A question answers with a finding rather than a table. Remove it to save the rows it
             was computed from.
           </p>
         )}
-        {saveError && <p className="text-xs text-[var(--flag-warning)]">{saveError}</p>}
+        {error && <p className="text-xs text-[var(--flag-warning)]">{error}</p>}
       </div>
     </section>
   );
