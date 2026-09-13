@@ -73,6 +73,8 @@ export type QualityScore = {
   dataset_id: string;
   score: number;
   dimensions: QualityDimension[];
+  /** What the recipe, rather than the file, decided about these numbers. */
+  caveats: string[];
 };
 
 export type QualityReport = {
@@ -336,6 +338,8 @@ export type CategoricalSummary = {
 export type RecipeAnalysis = {
   op: string;
   columns: string[];
+  /** What the steps above did to the meaning of what was measured. */
+  caveats: string[];
   chart: ChartSpec | null;
   comparison: GroupComparison | null;
   correlation: CorrelationPair | null;

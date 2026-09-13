@@ -8,6 +8,7 @@ from app.analysis.datetime_analysis import MIN_TIMELINE_POINTS, analyze_timeline
 from app.analysis.group_analysis import MIN_GROUP_SIZE, analyze_groups
 from app.analysis.numbers import numeric_values
 from app.analysis.numeric_analysis import analyze_numeric
+from app.provenance import GROUPED_ROWS_CAVEAT
 from app.recipes.models import (
     Aggregate,
     Aggregation,
@@ -41,6 +42,7 @@ from app.recipes.models import (
     TransformStep,
     Trend,
 )
+from app.recipes.provenance import provenance_of
 from app.recipes.schema import aggregation_name, find_column, plan_schema
 from app.recipes.validator import (
     StepRefused,
@@ -84,7 +86,10 @@ WHOLE_TABLE_FUNCTIONS = {
 
 
 def _analyze(
-    frame: pd.DataFrame, columns: list[PlannedColumn], step: AnalyzeStep
+    frame: pd.DataFrame,
+    columns: list[PlannedColumn],
+    step: AnalyzeStep,
+    grouped: bool = False,
 ) -> RecipeAnalysis:
     """Run the terminal analysis over what the steps left.
 
@@ -105,6 +110,7 @@ def _analyze(
             return RecipeAnalysis(
                 op=step.op,
                 columns=[step.group_by, step.measure],
+                caveats=[GROUPED_ROWS_CAVEAT] if grouped else [],
                 comparison=comparison,
                 chart=box_chart(comparison),
             )
@@ -120,6 +126,7 @@ def _analyze(
             return RecipeAnalysis(
                 op=step.op,
                 columns=[step.left, step.right],
+                caveats=[GROUPED_ROWS_CAVEAT] if grouped else [],
                 correlation=pairs[0],
                 chart=scatter_chart(frame, pairs[0]),
             )
@@ -580,7 +587,9 @@ def run_recipe(frame: pd.DataFrame, columns: list[PlannedColumn], recipe: Recipe
     refusal = validate_analyze(columns, recipe.analyze, index)
     if refusal is None:
         try:
-            analysis = _analyze(frame, columns, recipe.analyze)
+            analysis = _analyze(
+                frame, columns, recipe.analyze, provenance_of([recipe]).rows_are_groups
+            )
         except StepRefused as refused:
             refusal = StepRefusal(
                 step_index=index,

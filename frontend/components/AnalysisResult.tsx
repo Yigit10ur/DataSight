@@ -91,14 +91,17 @@ function read(analysis: RecipeAnalysis): { headline: string; caveats: string[] }
 
 export function AnalysisResult({ analysis }: { analysis: RecipeAnalysis }) {
   const { headline, caveats } = read(analysis);
+  // What the recipe did to the meaning of the rows comes first: it frames every
+  // number underneath it.
+  const all = [...analysis.caveats, ...caveats];
 
   return (
     <section className="flex flex-col gap-3">
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <p className="text-sm">{headline}</p>
-        {caveats.length > 0 && (
+        {all.length > 0 && (
           <ul className="mt-2 flex flex-col gap-0.5">
-            {caveats.map((caveat) => (
+            {all.map((caveat) => (
               <li key={caveat} className="text-xs text-[var(--text-muted)]">
                 {caveat}
               </li>

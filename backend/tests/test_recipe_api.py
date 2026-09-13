@@ -391,3 +391,87 @@ def test_a_question_has_no_bearing_on_the_rows_that_are_exported():
 
 def test_exporting_a_dataset_that_is_not_there_is_a_404():
     assert client.post("/api/datasets/nope/recipe/export", json={"steps": []}).status_code == 404
+
+
+GROUPED = [
+    {
+        "op": "aggregate",
+        "group_by": ["city"],
+        "aggregations": [
+            {"function": "sum", "column": "revenue"},
+            {"function": "sum", "column": "cost"},
+        ],
+    }
+]
+
+
+def test_findings_about_a_derived_dataset_say_how_it_was_derived():
+    dataset_id = upload()
+    derived = apply(dataset_id, GROUPED).json()["dataset_id"]
+
+    insights = client.get(f"/api/datasets/{derived}/insights").json()["insights"]
+    correlations = [one for one in insights if one["insight_type"] == "correlation"]
+
+    assert correlations, "the aggregate should still produce a correlation"
+    assert any("group summarised from the file" in caveat for caveat in correlations[0]["caveats"])
+
+
+def test_findings_about_an_uploaded_file_say_nothing_of_the_kind():
+    dataset_id = upload()
+    insights = client.get(f"/api/datasets/{dataset_id}/insights").json()["insights"]
+
+    assert all(
+        "group summarised from the file" not in caveat
+        for one in insights
+        for caveat in one["caveats"]
+    )
+
+
+def test_a_score_a_recipe_produced_arrives_with_the_reason_it_is_high():
+    dataset_id = upload(GAPPED, "gapped.csv")
+    derived = apply(dataset_id, [{"op": "drop_missing"}]).json()["dataset_id"]
+
+    score = client.get(f"/api/datasets/{derived}/quality").json()["score"]
+
+    assert score["score"] == 100
+    assert any("describes the recipe" in caveat for caveat in score["caveats"])
+    # And the file it came from carries no such note.
+    assert client.get(f"/api/datasets/{dataset_id}/quality").json()["score"]["caveats"] == []
+
+
+def test_an_analysis_over_what_a_recipe_grouped_says_so():
+    dataset_id = upload()
+    body = preview(
+        dataset_id, GROUPED, analyze={"op": "relate", "left": "sum_revenue", "right": "sum_cost"}
+    )
+
+    assert body["refusal"] is None
+    assert any("group summarised from the file" in c for c in body["analysis"]["caveats"])
+
+
+def test_an_analysis_over_rows_that_are_still_rows_says_nothing_of_the_kind():
+    dataset_id = upload()
+    body = preview(
+        dataset_id,
+        [
+            {
+                "op": "filter_rows",
+                "clauses": [{"column": "revenue", "operator": "gt", "value": 200}],
+            }
+        ],
+        analyze={"op": "relate", "left": "revenue", "right": "cost"},
+    )
+
+    assert body["analysis"]["caveats"] == []
+
+
+def test_provenance_follows_a_dataset_shaped_twice():
+    dataset_id = upload()
+    first = apply(dataset_id, GROUPED).json()["dataset_id"]
+    second = apply(first, [{"op": "sort_rows", "columns": ["city"]}]).json()["dataset_id"]
+
+    insights = client.get(f"/api/datasets/{second}/insights").json()["insights"]
+    correlations = [one for one in insights if one["insight_type"] == "correlation"]
+
+    # The grouping happened two datasets ago and still decides what a row is.
+    assert any("group summarised from the file" in c for c in correlations[0]["caveats"])

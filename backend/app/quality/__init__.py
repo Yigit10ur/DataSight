@@ -1,6 +1,7 @@
 import pandas as pd
 
 from app.profiling.models import DatasetProfile
+from app.provenance import Provenance
 from app.quality.consistency_checker import check_consistency, normalise_category
 from app.quality.duplicate_detector import detect_duplicates
 from app.quality.missing_detector import detect_missing_values
@@ -18,7 +19,9 @@ __all__ = [
 ]
 
 
-def check_dataset_quality(frame: pd.DataFrame, profile: DatasetProfile) -> QualityReport:
+def check_dataset_quality(
+    frame: pd.DataFrame, profile: DatasetProfile, provenance: Provenance | None = None
+) -> QualityReport:
     """Collect every quality problem found in the dataset, most severe first."""
     schemas = profile.column_schemas
     issues = [
@@ -32,6 +35,6 @@ def check_dataset_quality(frame: pd.DataFrame, profile: DatasetProfile) -> Quali
 
     return QualityReport(
         dataset_id=profile.dataset_id,
-        score=score_dataset(profile, issues),
+        score=score_dataset(profile, issues, provenance),
         issues=issues,
     )

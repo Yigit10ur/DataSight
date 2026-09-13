@@ -74,10 +74,11 @@ def get_charts(dataset_id: str) -> ChartCollection:
 def get_insights(dataset_id: str) -> InsightCollection:
     stored = _require_dataset(dataset_id)
     frame = dataset_store.frame_of(stored)
+    shaped = dataset_store.provenance(stored)
     analysis = analyze_dataset(frame, stored.profile)
     charts = build_charts(frame, stored.profile, analysis)
-    quality = check_dataset_quality(frame, stored.profile)
-    return build_insights(stored.profile, analysis, quality, charts.charts)
+    quality = check_dataset_quality(frame, stored.profile, shaped)
+    return build_insights(stored.profile, analysis, quality, charts.charts, shaped)
 
 
 @router.get("/datasets/{dataset_id}/explanations", response_model=ExplanationCollection)
@@ -89,17 +90,20 @@ def get_explanations(dataset_id: str) -> ExplanationCollection:
     """
     stored = _require_dataset(dataset_id)
     frame = dataset_store.frame_of(stored)
+    shaped = dataset_store.provenance(stored)
     analysis = analyze_dataset(frame, stored.profile)
     charts = build_charts(frame, stored.profile, analysis)
-    quality = check_dataset_quality(frame, stored.profile)
-    insights = build_insights(stored.profile, analysis, quality, charts.charts)
+    quality = check_dataset_quality(frame, stored.profile, shaped)
+    insights = build_insights(stored.profile, analysis, quality, charts.charts, shaped)
     return explain_insights(stored.profile, quality.score, insights.insights)
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)
 def get_quality(dataset_id: str) -> QualityReport:
     stored = _require_dataset(dataset_id)
-    return check_dataset_quality(dataset_store.frame_of(stored), stored.profile)
+    return check_dataset_quality(
+        dataset_store.frame_of(stored), stored.profile, dataset_store.provenance(stored)
+    )
 
 
 @router.post("/datasets/{dataset_id}/recipe/preview", response_model=RecipePreview)

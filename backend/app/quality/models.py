@@ -61,6 +61,9 @@ class QualityScore(BaseModel):
     dataset_id: str
     score: int
     dimensions: list[QualityDimension]
+    # What the recipe, rather than the file, decided about these numbers. Empty for
+    # an uploaded file, which had no recipe to decide anything.
+    caveats: list[str] = []
 
 
 class QualityReport(BaseModel):

@@ -10,6 +10,7 @@ from app.analysis.models import (
 from app.insights.formatting import multiple, number, percent
 from app.insights.models import Insight
 from app.profiling.models import DatasetProfile
+from app.provenance import GROUPED_ROWS_CAVEAT, Provenance
 from app.quality.models import QualityReport
 from app.visualization.models import ChartSpec
 
@@ -44,6 +45,12 @@ SPLIT_CATEGORY_CAVEAT = (
 
 SPLIT_CATEGORY_CONFIDENCE = 0.6
 
+# A relationship between group totals is systematically stronger than the same
+# relationship between the records inside those groups, and can even run the other
+# way. How much less to lean on it is a judgement in the same spirit as
+# SPLIT_CATEGORY_CONFIDENCE above, not something measured.
+GROUPED_ROWS_CONFIDENCE = 0.6
+
 CONSISTENCY_ISSUES = {"suspicious_categories", "inconsistent_formatting"}
 
 
@@ -51,7 +58,9 @@ def _capped(value: float, ceiling: float) -> float:
     return min(abs(value) / ceiling, 1.0) if ceiling else 0.0
 
 
-def _correlation_insight(pair: CorrelationPair, charts: dict) -> Insight | None:
+def _correlation_insight(
+    pair: CorrelationPair, charts: dict, grouped: bool = False
+) -> Insight | None:
     coefficient = max(abs(pair.pearson), abs(pair.spearman or 0.0))
     if coefficient < STRONG_CORRELATION:
         return None
@@ -77,16 +86,16 @@ def _correlation_insight(pair: CorrelationPair, charts: dict) -> Insight | None:
             "spearman": pair.spearman,
             "sample_size": pair.sample_size,
         },
-        confidence=1.0,
+        confidence=GROUPED_ROWS_CONFIDENCE if grouped else 1.0,
         strength=coefficient,
         sample_size=pair.sample_size,
-        caveats=[CAUSATION_CAVEAT],
+        caveats=[CAUSATION_CAVEAT] + ([GROUPED_ROWS_CAVEAT] if grouped else []),
         chart_id=charts.get(("scatter", (pair.column_a, pair.column_b))),
     )
 
 
 def _group_insight(
-    comparison: GroupComparison, split_columns: set[str], charts: dict
+    comparison: GroupComparison, split_columns: set[str], charts: dict, grouped: bool = False
 ) -> Insight | None:
     effect = comparison.effect_size
     if effect is None or effect < MODERATE_EFFECT:
@@ -123,10 +132,14 @@ def _group_insight(
             "p_value": comparison.p_value,
             "sample_size": comparison.sample_size,
         },
-        confidence=SPLIT_CATEGORY_CONFIDENCE if split else 1.0,
+        confidence=min(
+            SPLIT_CATEGORY_CONFIDENCE if split else 1.0,
+            GROUPED_ROWS_CONFIDENCE if grouped else 1.0,
+        ),
         strength=_capped(effect, LARGE_EFFECT),
         sample_size=comparison.sample_size,
-        caveats=[SPLIT_CATEGORY_CAVEAT] if split else [],
+        caveats=([SPLIT_CATEGORY_CAVEAT] if split else [])
+        + ([GROUPED_ROWS_CAVEAT] if grouped else []),
         chart_id=charts.get(("box", (comparison.group_column, comparison.value_column))),
     )
 
@@ -393,13 +406,23 @@ def generate_insights(
     analysis: DatasetAnalysis,
     quality: QualityReport,
     charts: list[ChartSpec],
+    provenance: Provenance | None = None,
 ) -> list[Insight]:
     """Turn computed results into structured findings.
 
     Nothing is measured here. Every number already exists in the analysis or the
     quality report; this layer only decides which of them are worth saying out
     loud and writes the sentence that says it.
+
+    Provenance changes nothing that is computed and two things that are said. Over a
+    dataset whose rows are groups, a correlation and a group difference are about the
+    groups rather than the records in them — which is a different claim, and one a
+    reader cannot tell apart from the numbers alone. Findings about a column's own
+    shape are left as they are: a long tail in a column called sum_revenue is a fact
+    about those totals, correctly stated.
     """
+    shaped = provenance or Provenance()
+    grouped = shaped.rows_are_groups
     lookup = _chart_lookup(charts)
     split_columns = {
         column
@@ -410,9 +433,9 @@ def generate_insights(
 
     candidates: list[Insight | None] = []
     for pair in analysis.correlations:
-        candidates.append(_correlation_insight(pair, lookup))
+        candidates.append(_correlation_insight(pair, lookup, grouped))
     for comparison in analysis.groups:
-        candidates.append(_group_insight(comparison, split_columns, lookup))
+        candidates.append(_group_insight(comparison, split_columns, lookup, grouped))
     for timeline in analysis.timelines:
         candidates.append(_trend_insight(timeline, lookup))
         candidates.append(_seasonality_insight(timeline, lookup))

@@ -322,6 +322,8 @@ class RecipeAnalysis(BaseModel):
 
     op: str
     columns: list[str]
+    # What the steps above did to the meaning of what was measured.
+    caveats: list[str] = Field(default_factory=list)
     chart: ChartSpec | None = None
     comparison: GroupComparison | None = None
     correlation: CorrelationPair | None = None

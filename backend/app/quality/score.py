@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from app.profiling.models import ColumnSchema, DatasetProfile
+from app.provenance import Provenance
 from app.quality.models import (
     DimensionName,
     QualityDimension,
@@ -40,6 +41,19 @@ WEIGHTS: dict[DimensionName, float] = {
     "duplicates": 0.15,
     "outliers": 0.15,
 }
+
+GAPS_SHAPED_CAVEAT = (
+    "The gaps in this dataset were filled or dropped on the way here, so completeness "
+    "describes the recipe as much as the data."
+)
+ROWS_REMOVED_CAVEAT = (
+    "Rows were removed on the way here, so this scores what is left rather than the "
+    "file it came from."
+)
+GROUPED_ROWS_SCORE_CAVEAT = (
+    "Each row here is one group rather than one record, so a perfect duplicate score "
+    "is what grouping produces rather than something the data earned."
+)
 
 CONSISTENCY_TYPES = {"categorical", "text", "boolean"}
 CONSISTENCY_ISSUES = {"suspicious_categories", "inconsistent_formatting"}
@@ -180,13 +194,22 @@ def _type_consistency(
     )
 
 
-def score_dataset(profile: DatasetProfile, issues: list[QualityIssue]) -> QualityScore:
+def score_dataset(
+    profile: DatasetProfile,
+    issues: list[QualityIssue],
+    provenance: Provenance | None = None,
+) -> QualityScore:
     """Rate the dataset out of 100 along the five dimensions of section 8.
 
     The score is a pure function of the profile and the issues already reported,
     so it can never disagree with the list the reader sees next to it. Structural
     notes — constant columns, identifiers, high cardinality — are deliberately not
     scored: they describe what a column is, not whether it is damaged.
+
+    A shaped dataset is scored exactly the same way and then told on. A recipe that
+    drops every row with a gap earns a hundred for completeness, which is true and
+    useless; changing the number would be pretending the data is worse than it is,
+    so the number stands and the reason it is high is written next to it.
     """
     by_type: dict[str, list[QualityIssue]] = defaultdict(list)
     for issue in issues:
@@ -209,8 +232,24 @@ def score_dataset(profile: DatasetProfile, issues: list[QualityIssue]) -> Qualit
         dimension.weight = WEIGHTS[dimension.name] / total_weight if dimension.applicable else 0.0
 
     overall = sum(dimension.score * dimension.weight for dimension in measurable)
+    shaped = provenance or Provenance()
+    caveats = [
+        *([GAPS_SHAPED_CAVEAT] if shaped.gaps_were_shaped else []),
+        # Grouping removes rows too, and says so better: "each row is a group" is the
+        # reason these numbers look the way they do, and repeating the weaker version
+        # underneath it would only crowd the stronger one.
+        *(
+            [GROUPED_ROWS_SCORE_CAVEAT]
+            if shaped.rows_are_groups
+            else [ROWS_REMOVED_CAVEAT]
+            if shaped.rows_were_removed
+            else []
+        ),
+    ]
+
     return QualityScore(
         dataset_id=profile.dataset_id,
         score=round(overall) if total_weight else 0,
         dimensions=dimensions,
+        caveats=caveats,
     )

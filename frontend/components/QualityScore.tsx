@@ -37,27 +37,42 @@ function DimensionRow({ dimension }: { dimension: QualityDimension }) {
 
 export function QualityScore({ score }: { score: Score }) {
   return (
-    <section className="flex flex-col gap-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4 sm:flex-row sm:items-center sm:gap-8">
-      <div className="shrink-0">
-        <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
-          Data quality score
+    <section className="flex flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-8">
+        <div className="shrink-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
+            Data quality score
+          </div>
+          <div className="mt-1 flex items-baseline gap-1">
+            <span
+              className="text-4xl font-semibold tabular-nums"
+              style={{ color: scoreColor(score.score) }}
+            >
+              {score.score}
+            </span>
+            <span className="text-sm text-[var(--text-muted)]">/ 100</span>
+          </div>
         </div>
-        <div className="mt-1 flex items-baseline gap-1">
-          <span
-            className="text-4xl font-semibold tabular-nums"
-            style={{ color: scoreColor(score.score) }}
-          >
-            {score.score}
-          </span>
-          <span className="text-sm text-[var(--text-muted)]">/ 100</span>
+
+        <div className="flex flex-1 flex-col gap-2">
+          {score.dimensions.map((dimension) => (
+            <DimensionRow key={dimension.name} dimension={dimension} />
+          ))}
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2">
-        {score.dimensions.map((dimension) => (
-          <DimensionRow key={dimension.name} dimension={dimension} />
-        ))}
-      </div>
+      {/* Why the number looks the way it does, when a recipe rather than the file
+          decided it. A score of 100 that a step produced is worth less than one the
+          data earned, and saying so is cheaper than changing the number. */}
+      {score.caveats.length > 0 && (
+        <ul className="flex flex-col gap-1 border-t border-[var(--border)] pt-3">
+          {score.caveats.map((caveat) => (
+            <li key={caveat} className="text-xs leading-relaxed text-[var(--text-muted)]">
+              {caveat}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

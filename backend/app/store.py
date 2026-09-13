@@ -6,7 +6,8 @@ import pandas as pd
 from pydantic import BaseModel
 
 from app.profiling.models import DatasetProfile
-from app.recipes import Recipe, planned_columns, run_recipe
+from app.provenance import Provenance
+from app.recipes import Recipe, planned_columns, provenance_of, run_recipe
 
 # How many derived frames are held in memory at once. Derived data is kept as its
 # recipe, so a frame that falls out of here is rebuilt on the next request rather
@@ -153,6 +154,14 @@ class DatasetStore:
             len(dataset.recipe.steps) for dataset in chain if dataset.recipe is not None
         )
         return f"{chain[0].filename} ({steps_phrase(total)})"
+
+    def provenance(self, stored: StoredDataset) -> Provenance:
+        """What every recipe between the uploaded file and this dataset did to it."""
+        return provenance_of(
+            dataset.recipe
+            for dataset in self.lineage(stored)
+            if dataset.recipe is not None
+        )
 
     def total_steps(self, stored: StoredDataset, extra: int = 0) -> int:
         """How many steps separate this dataset from the file it came from."""

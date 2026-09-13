@@ -49,6 +49,8 @@ from app.recipes.schema import (
     plan_schema,
     planned_columns,
 )
+from app.provenance import Provenance
+from app.recipes.provenance import provenance_of
 from app.recipes.validator import (
     StepRefused,
     validate_analyze,
@@ -81,6 +83,7 @@ __all__ = [
     "MAX_RECIPE_STEPS",
     "MapValuesExpression",
     "PlannedColumn",
+    "Provenance",
     "Recipe",
     "RecipeAnalysis",
     "RecipePreview",
@@ -101,8 +104,10 @@ __all__ = [
     "plan_recipe_schema",
     "plan_schema",
     "planned_columns",
+    "provenance_of",
     "run_recipe",
     "validate_analyze",
     "validate_recipe",
     "validate_step",
 ]
+
