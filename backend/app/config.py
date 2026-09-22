@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolved from this file rather than the working directory. A relative ".env"
@@ -14,7 +15,9 @@ class Settings(BaseSettings):
 
     app_name: str = "AI Data Insight Engine"
     cors_origins: list[str] = ["http://localhost:3000"]
-    max_upload_bytes: int = 100 * 1024 * 1024
+    max_upload_bytes: int = Field(default=100 * 1024 * 1024, gt=0)
+    dataset_ttl_seconds: float = Field(default=3600, gt=0, allow_inf_nan=False)
+    max_datasets: int = Field(default=100, gt=0)
 
     # Explaining a finding is a writing task over numbers that are already settled,
     # so it does not need the largest model.

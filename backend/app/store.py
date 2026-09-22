@@ -1,10 +1,16 @@
+import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import wraps
+from threading import RLock
+from typing import Callable
 
 import pandas as pd
 from pydantic import BaseModel
 
+from app.ai.insight_explainer import clear_dataset_cache
+from app.config import settings
 from app.profiling.models import DatasetProfile
 from app.provenance import Provenance
 from app.recipes import Recipe, planned_columns, provenance_of, run_recipe
@@ -24,7 +30,23 @@ MAX_DERIVED_PER_PARENT = 20
 
 
 class DatasetLimit(Exception):
-    """Raised when a dataset cannot be derived because a cap is in the way."""
+    """Raised when a dataset cannot be stored because a cap is in the way."""
+
+
+class DatasetNotFound(Exception):
+    """A dataset expired or was removed, including during an in-flight request."""
+
+
+def synchronized(method):
+    """Keep pruning, lineage reads, and cache mutations atomic across API threads."""
+
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            self._purge_expired()
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 def steps_phrase(count: int) -> str:
@@ -37,6 +59,7 @@ class StoredDataset:
     dataset_id: str
     filename: str
     profile: DatasetProfile
+    expires_at: float
     # An uploaded dataset is its own root and its frame is held. A derived one holds
     # the recipe that makes it, and is rebuilt from its parent when asked for.
     parent_id: str | None = None
@@ -72,7 +95,9 @@ class DatasetStore:
     is what lets a reader try a dozen shapes without a dozen copies of their file.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self._lock = RLock()
         self._datasets: dict[str, StoredDataset] = {}
         self._uploaded: dict[str, pd.DataFrame] = {}
         self._derived: OrderedDict[str, pd.DataFrame] = OrderedDict()
@@ -80,14 +105,20 @@ class DatasetStore:
     def new_id(self) -> str:
         return uuid.uuid4().hex
 
+    @synchronized
     def add(
         self, dataset_id: str, filename: str, frame: pd.DataFrame, profile: DatasetProfile
     ) -> StoredDataset:
-        stored = StoredDataset(dataset_id=dataset_id, filename=filename, profile=profile)
+        self._check_capacity(dataset_id)
+        stored = StoredDataset(
+            dataset_id=dataset_id, filename=filename, profile=profile,
+            expires_at=self._clock() + settings.dataset_ttl_seconds,
+        )
         self._datasets[dataset_id] = stored
         self._uploaded[dataset_id] = frame
         return stored
 
+    @synchronized
     def add_derived(
         self,
         dataset_id: str,
@@ -97,6 +128,8 @@ class DatasetStore:
         profile: DatasetProfile,
     ) -> StoredDataset:
         """Register the result of a recipe as a dataset in its own right."""
+        self._require_live(parent)
+        self._check_capacity(dataset_id)
         if len(self.lineage(parent)) >= MAX_LINEAGE_DEPTH:
             raise DatasetLimit(
                 f"This dataset is already {MAX_LINEAGE_DEPTH} steps from the file it came "
@@ -111,6 +144,7 @@ class DatasetStore:
             dataset_id=dataset_id,
             filename=profile.filename,
             profile=profile,
+            expires_at=parent.expires_at,
             parent_id=parent.dataset_id,
             recipe=recipe,
         )
@@ -120,11 +154,14 @@ class DatasetStore:
         self._remember(dataset_id, frame)
         return stored
 
+    @synchronized
     def get(self, dataset_id: str) -> StoredDataset | None:
         return self._datasets.get(dataset_id)
 
+    @synchronized
     def frame_of(self, stored: StoredDataset) -> pd.DataFrame:
         """The data itself, rebuilt from its recipe if it is not being held."""
+        self._require_live(stored)
         if not stored.is_derived:
             return self._uploaded[stored.dataset_id]
 
@@ -137,15 +174,58 @@ class DatasetStore:
         self._remember(stored.dataset_id, frame)
         return frame
 
+    @synchronized
     def lineage(self, stored: StoredDataset) -> list[StoredDataset]:
         """Every dataset between the uploaded file and this one, the file first."""
+        self._require_live(stored)
         chain = [stored]
         while chain[0].parent_id is not None:
             parent = self._datasets.get(chain[0].parent_id)
-            if parent is None:  # pragma: no cover - a parent is never removed
-                break
+            if parent is None:  # pragma: no cover - removal always includes descendants
+                raise DatasetNotFound()
             chain.insert(0, parent)
         return chain
+
+    @synchronized
+    def expire(self) -> None:
+        """Prune expired families, also called periodically while the server is idle."""
+
+    @synchronized
+    def remove(self, dataset_id: str) -> None:
+        """Remove a dataset and every recipe that depends on it."""
+        self._remove_tree(dataset_id)
+
+    def _require_live(self, stored: StoredDataset) -> None:
+        if self._datasets.get(stored.dataset_id) is not stored:
+            raise DatasetNotFound()
+
+    def _check_capacity(self, dataset_id: str) -> None:
+        if dataset_id in self._datasets:
+            raise DatasetLimit("This dataset ID is already stored.")
+        if len(self._datasets) >= settings.max_datasets:
+            raise DatasetLimit(
+                f"The temporary dataset store is full ({settings.max_datasets} datasets). "
+                "Export work you want to keep and retry after datasets expire."
+            )
+
+    def _purge_expired(self) -> None:
+        now = self._clock()
+        for dataset_id in [
+            item.dataset_id for item in self._datasets.values() if item.expires_at <= now
+        ]:
+            self._remove_tree(dataset_id)
+
+    def _remove_tree(self, dataset_id: str) -> None:
+        pending = [dataset_id]
+        while pending:
+            current = pending.pop()
+            pending.extend(
+                item.dataset_id for item in self._datasets.values() if item.parent_id == current
+            )
+            self._datasets.pop(current, None)
+            self._uploaded.pop(current, None)
+            self._derived.pop(current, None)
+            clear_dataset_cache(current)
 
     def derived_name(self, parent: StoredDataset, step_count: int) -> str:
         """Name a derived dataset after the file it came from and how far it has come."""
@@ -186,6 +266,11 @@ class DatasetStore:
         return run.frame
 
     def _remember(self, dataset_id: str, frame: pd.DataFrame) -> None:
+        # Rebuilding a recipe may cross its deadline. Never reinsert a frame after
+        # a nested store read pruned its family.
+        self._purge_expired()
+        if dataset_id not in self._datasets:
+            raise DatasetNotFound()
         self._derived[dataset_id] = frame
         self._derived.move_to_end(dataset_id)
         while len(self._derived) > DERIVED_CACHE_SIZE:

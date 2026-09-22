@@ -145,8 +145,11 @@ def explain_insights(
         return _unavailable(dataset_id, NO_KEY_REASON)
 
     key = (dataset_id, *(insight.id for insight in explained))
-    with _lock_for(key):
-        if key not in _cache:
+    lock = _lock_for(key)
+    with lock:
+        with _locks_guard:
+            result = _cache.get(key)
+        if result is None:
             system, user = build_prompt(profile, score, explained)
             try:
                 summary, answers = _parse(client.complete(system, user))
@@ -160,9 +163,14 @@ def explain_insights(
                 if (text := verify(answers.get(insight.id, ""), insight, dataset))
                 is not None
             ]
-            _cache[key] = (verify_summary(summary, profile, score, explained), verified)
+            result = (verify_summary(summary, profile, score, explained), verified)
+            with _locks_guard:
+                # Expiration can remove this key while the model is answering.
+                # Return the in-flight answer but never resurrect its cache entry.
+                if _locks.get(key) is lock:
+                    _cache[key] = result
 
-    summary, explanations = _cache[key]
+    summary, explanations = result
     return ExplanationCollection(
         dataset_id=dataset_id,
         available=True,
@@ -173,6 +181,15 @@ def explain_insights(
 
 
 def clear_cache() -> None:
-    _cache.clear()
     with _locks_guard:
+        _cache.clear()
         _locks.clear()
+
+
+def clear_dataset_cache(dataset_id: str) -> None:
+    """Release explanations and request locks when their dataset is removed."""
+    with _locks_guard:
+        for key in set(_cache) | set(_locks):
+            if key[0] == dataset_id:
+                _cache.pop(key, None)
+                _locks.pop(key, None)

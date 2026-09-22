@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.ai import ExplanationCollection, explain_insights
+from app.ai.insight_explainer import clear_dataset_cache
 from app.analysis import DatasetAnalysis, analyze_dataset
 from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
@@ -33,15 +34,32 @@ def health() -> dict[str, str]:
 
 @router.post("/upload", response_model=DatasetProfile)
 async def upload(file: UploadFile = File(...)) -> DatasetProfile:
-    content = await file.read()
+    # Read at most the limit plus one sentinel byte, never the entire untrusted
+    # file. UploadFile itself is spooled by the multipart parser before this route.
+    content = bytearray()
     try:
+        while True:
+            chunk = await file.read(min(64 * 1024, settings.max_upload_bytes - len(content) + 1))
+            if not chunk:
+                break
+            if len(content) + len(chunk) > settings.max_upload_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File exceeds the upload limit of {settings.max_upload_bytes} bytes.",
+                )
+            content.extend(chunk)
         frame = load_dataset(file.filename or "", content, settings.max_upload_bytes)
     except DatasetValidationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        await file.close()
 
     dataset_id = dataset_store.new_id()
     profile = profile_dataset(dataset_id, file.filename or "dataset", frame)
-    dataset_store.add(dataset_id, profile.filename, frame, profile)
+    try:
+        dataset_store.add(dataset_id, profile.filename, frame, profile)
+    except DatasetLimit as limit:
+        raise HTTPException(status_code=409, detail=str(limit)) from limit
     return profile
 
 
@@ -95,7 +113,13 @@ def get_explanations(dataset_id: str) -> ExplanationCollection:
     charts = build_charts(frame, stored.profile, analysis)
     quality = check_dataset_quality(frame, stored.profile, shaped)
     insights = build_insights(stored.profile, analysis, quality, charts.charts, shaped)
-    return explain_insights(stored.profile, quality.score, insights.insights)
+    result = explain_insights(stored.profile, quality.score, insights.insights)
+    if dataset_store.get(dataset_id) is None:
+        # A request already computing findings may start its model call after a
+        # sweep. Do not retain that late answer for a deleted dataset either.
+        clear_dataset_cache(dataset_id)
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return result
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)

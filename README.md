@@ -59,6 +59,14 @@ The frontend connects to `http://localhost:8000` by default. To use another back
 4. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
 
 Excel imports read the first worksheet. The default upload limit is 100 MiB.
+Files exceeding the configured limit receive HTTP 413. The application reads in
+chunks and stops after at most the limit plus one byte, before parsing or storing
+an oversized file. Existing CSV and XLSX content validation still applies.
+
+Datasets are temporary: by default, an upload and every dataset derived from it
+expire **one hour after the original upload**. Reading, previewing, and saving a
+recipe do not reset this deadline. Expired IDs return `404 Dataset not found.`
+Export your results with **Download CSV** before they expire.
 
 ## Optional AI explanations
 
@@ -88,6 +96,8 @@ Backend settings are defined in [backend/app/config.py](backend/app/config.py) a
 | `DATASIGHT_EXPLANATION_MAX_TOKENS` | `1500` | Output token budget per model request. |
 | `DATASIGHT_EXPLANATION_TIMEOUT_SECONDS` | `30` | Model request timeout in seconds. |
 | `DATASIGHT_MAX_UPLOAD_BYTES` | `104857600` | Maximum accepted file size in bytes. |
+| `DATASIGHT_DATASET_TTL_SECONDS` | `3600` | Fixed lifetime of an upload and its descendants, in seconds. Must be positive and finite. |
+| `DATASIGHT_MAX_DATASETS` | `100` | Maximum total uploaded and derived datasets retained by the backend process. Must be positive. |
 | `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend setting; configure in `frontend/.env.local`. |
 
@@ -155,7 +165,25 @@ The backend uses FastAPI, pandas, NumPy, and SciPy. The frontend uses Next.js, R
 
 DataSight is a development-stage application. Uploaded and derived datasets are held in backend memory and are lost when the backend restarts, including development reloads. Use CSV export to keep transformed data. Run a single backend process; dataset storage is not shared across workers.
 
-The API currently has no authentication or per-user dataset access controls. Public hosting requires additional access controls and resource limits.
+Expired datasets are removed during store access and by an idle sweep every 60
+seconds. Removal includes dependent recipes, profiles, cached derived frames, and
+cached AI explanations. Derived datasets share the original upload's deadline,
+so lineage never points to an expired parent. A full store refuses new uploads
+and derived saves with HTTP 409 instead of evicting work that has not expired.
+Expired entries are reclaimed before checking capacity. The count limit includes
+derived recipe records; the existing four-frame derived cache, per-parent limit
+of 20 children, and lineage depth limit of 10 also apply.
+
+These are retention bounds, **not a total process-memory budget**. Parsed CSV data
+and decompressed XLSX workbooks can be much larger than the upload; parsing,
+profiling, analyses, and recipes can allocate temporary copies. In-flight requests
+may keep references until they finish. The multipart parser receives and spools
+the request before the route's bounded read, so the route limit does not bound
+incoming traffic or temporary disk usage. Before public hosting, add reverse-proxy
+body limits, request/concurrency limits, parsing time and memory budgets, XLSX
+expansion limits, and disk quotas. The API also has no authentication or per-user
+dataset access controls, and no durable storage; those capabilities must be planned
+separately before accepting private data from unrelated users.
 
 Natural-language questions and conversational follow-ups are planned. The current recipe interface offers structured transformations and analysis choices.
 

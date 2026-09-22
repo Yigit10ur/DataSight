@@ -45,7 +45,7 @@ export function UploadDropzone({ onFile, isUploading }: Props) {
 
       <p className="text-base font-medium">Drop a CSV or Excel file here</p>
       <p className="mt-1 text-sm text-[var(--text-secondary)]">
-        Supported formats: .csv, .xlsx — up to 100 MB
+        Supported formats: .csv, .xlsx — upload limit set by the server (100 MiB by default)
       </p>
 
       <button

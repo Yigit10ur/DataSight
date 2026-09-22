@@ -116,6 +116,11 @@ export function RecipeWorkbench({
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold">Shape this data</h2>
+      <p className="text-xs text-[var(--text-muted)]">
+        Datasets are temporary and expire from the original upload time, including saved
+        recipes. Saving does not extend their lifetime. Download CSV to keep your work;
+        a server restart also removes it.
+      </p>
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
         <RecipeSteps
