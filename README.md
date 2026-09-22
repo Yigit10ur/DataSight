@@ -106,10 +106,26 @@ Run frontend checks from the repository root in another terminal:
 
 ```bash
 cd frontend
+npm test
 npm run lint
-npx tsc --noEmit
+npm run typecheck
 npm run build
 ```
+
+`npm test` runs the Vitest and React Testing Library interaction suite once;
+`npm run test:watch` reruns tests while editing. Tests cover file upload and its
+loading state, computed dashboard results, API errors and retry, and adding and
+removing a recipe step with a preview. HTTP responses are mocked at the fetch
+boundary, and Plotly drawing is stubbed because jsdom has no canvas renderer.
+No running backend or API key is needed. `typecheck` generates Next.js route types
+before checking TypeScript, so it also works on a fresh clone.
+
+[CI](.github/workflows/ci.yml) runs on pull requests and pushes to `main`, using
+Python 3.12 and Node.js 20.9.0 (the minimum supported version), with pip and npm
+dependency caches. Backend tests, frontend tests, lint, type checking, and the
+production build must all succeed; any failed command fails its job. CI does not
+use an Anthropic secret. The production build downloads Google fonts, so it needs
+network access even though tests do not.
 
 ## Project structure
 

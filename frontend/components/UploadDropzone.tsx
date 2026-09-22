@@ -33,6 +33,7 @@ export function UploadDropzone({ onFile, isUploading }: Props) {
       <input
         ref={inputRef}
         type="file"
+        aria-label="Upload dataset"
         accept=".csv,.xlsx"
         className="hidden"
         onChange={(event) => {
