@@ -12,7 +12,7 @@ class HistogramData(BaseModel):
 
 class BarData(BaseModel):
     categories: list[str]
-    counts: list[int]
+    counts: list[float]
     other_count: int
 
 

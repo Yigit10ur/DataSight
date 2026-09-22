@@ -13,6 +13,10 @@ const TYPE_LABELS: Record<InsightType, string> = {
   dominant_category: "dominant value",
   rare_categories: "rare values",
   missing_data: "missing data",
+  aggregate: "aggregate",
+  ranking: "ranking",
+  count: "count",
+  description: "description",
 };
 
 // Findings about the subject of the data read differently from findings about the
@@ -28,6 +32,10 @@ const TYPE_COLORS: Record<InsightType, string> = {
   dominant_category: "var(--type-boolean)",
   rare_categories: "var(--type-boolean)",
   missing_data: "var(--type-empty)",
+  aggregate: "var(--type-numeric)",
+  ranking: "var(--type-numeric)",
+  count: "var(--type-boolean)",
+  description: "var(--text-muted)",
 };
 
 export function InsightCard({

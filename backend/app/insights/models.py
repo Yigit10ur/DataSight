@@ -13,6 +13,10 @@ InsightType = Literal[
     "dominant_category",
     "rare_categories",
     "missing_data",
+    "aggregate",
+    "ranking",
+    "count",
+    "description",
 ]
 
 

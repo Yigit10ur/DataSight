@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ChartGrid } from "@/components/ChartGrid";
+import { AskData } from "@/components/AskData";
 import { ColumnTable } from "@/components/ColumnTable";
 import { ExplanationsToggle } from "@/components/ExplanationsToggle";
 import { InsightList } from "@/components/InsightList";
@@ -165,6 +166,11 @@ export default function Home() {
             )}
           </div>
           <ProfileOverview profile={profile} />
+          <AskData
+            key={`questions-${profile.dataset_id}`}
+            datasetId={profile.dataset_id}
+            enabled={explanationsEnabled}
+          />
           {score && <QualityScore score={score} />}
           <InsightList
             insights={insights}

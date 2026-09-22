@@ -14,6 +14,7 @@ from app.ingestion import DatasetValidationError, load_dataset
 from app.insights import InsightCollection
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
 from app.quality import QualityReport
+from app.questions import QuestionRequest, QuestionResponse, ask_question
 from app.recipes import Recipe, RecipePreview, planned_columns, run_recipe
 from app.store import (
     DatasetLimit,
@@ -117,6 +118,18 @@ def get_explanations(dataset_id: str) -> ExplanationCollection:
 def get_quality(dataset_id: str) -> QualityReport:
     stored = _require_dataset(dataset_id)
     return _dashboard(stored).quality
+
+
+@router.post("/datasets/{dataset_id}/questions", response_model=QuestionResponse)
+def ask_dataset(dataset_id: str, request: QuestionRequest) -> QuestionResponse:
+    stored = _require_dataset(dataset_id)
+    frame = dataset_store.frame_of(stored)
+    result = ask_question(
+        dataset_store, stored, frame, request.question, request.use_ai
+    )
+    if dataset_store.get(dataset_id) is not stored:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return result
 
 
 @router.post("/datasets/{dataset_id}/recipe/preview", response_model=RecipePreview)

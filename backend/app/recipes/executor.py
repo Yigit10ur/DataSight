@@ -73,6 +73,8 @@ DATETIME_PART_FORMATS = {
     "week": "%V",
     "weekday": "%A",
     "hour": "%H",
+    "year_month": "%Y-%m",
+    "year_week": "%G-W%V",
 }
 
 WHOLE_TABLE_FUNCTIONS = {
@@ -401,6 +403,11 @@ def _datetime_part(frame: pd.DataFrame, expression: DatetimePartExpression) -> p
         return moments.dt.normalize()
     if expression.part == "quarter":
         parts = moments.dt.quarter.map(lambda quarter: f"Q{quarter}", na_action="ignore")
+        return parts.where(moments.notna())
+    if expression.part == "year_quarter":
+        parts = moments.map(
+            lambda value: f"{value.year}-Q{value.quarter}" if pd.notna(value) else None
+        )
         return parts.where(moments.notna())
     return moments.dt.strftime(DATETIME_PART_FORMATS[expression.part]).where(moments.notna())
 

@@ -126,7 +126,11 @@ export type InsightType =
   | "skewed_distribution"
   | "dominant_category"
   | "rare_categories"
-  | "missing_data";
+  | "missing_data"
+  | "aggregate"
+  | "ranking"
+  | "count"
+  | "description";
 
 export type Insight = {
   id: string;
@@ -160,6 +164,21 @@ export type ExplanationCollection = {
   explanations: Explanation[];
 };
 
+export type QuestionResponse = {
+  dataset_id: string;
+  question: string;
+  status: "answered" | "refused";
+  refusal: string | null;
+  plan: Record<string, unknown> | null;
+  insight: Insight | null;
+  chart: ChartSpec | null;
+  rows: Record<string, unknown>[];
+  result_truncated: boolean;
+  answer: string | null;
+  explained: boolean;
+  explanation_reason: string | null;
+};
+
 // ---------------------------------------------------------------------------
 // Recipes: the closed vocabulary the backend validates. Every one of these has a
 // counterpart in backend/app/recipes/models.py, and nothing here is a string the
@@ -189,7 +208,9 @@ export type FilterClause = {
 
 export type FillMethod = "median" | "mean" | "mode" | "constant" | "forward";
 export type CastTarget = "numeric" | "datetime" | "categorical" | "text";
-export type DatetimePart = "year" | "quarter" | "month" | "week" | "weekday" | "date" | "hour";
+export type DatetimePart =
+  | "year" | "quarter" | "month" | "week" | "weekday" | "date" | "hour"
+  | "year_month" | "year_week" | "year_quarter";
 export type AggregateFunction = "sum" | "mean" | "median" | "count" | "min" | "max";
 
 // Whether an operand is a column or a number is declared, never guessed from how
@@ -425,6 +446,17 @@ export function fetchInsights(datasetId: string): Promise<InsightCollection> {
 
 export function fetchExplanations(datasetId: string): Promise<ExplanationCollection> {
   return request<ExplanationCollection>(`/api/datasets/${datasetId}/explanations`);
+}
+
+export function askDataset(
+  datasetId: string,
+  question: string,
+  useAI: boolean,
+): Promise<QuestionResponse> {
+  return post<QuestionResponse>(`/api/datasets/${datasetId}/questions`, {
+    question,
+    use_ai: useAI,
+  });
 }
 
 export function previewRecipe(

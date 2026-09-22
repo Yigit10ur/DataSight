@@ -205,6 +205,20 @@ def test_expiration_removes_explanation_cache_and_locks(retained):
     assert all(key not in insight_explainer._locks for key in keys)
 
 
+def test_expiration_removes_question_conversation(retained):
+    import app.question_state as question_state
+
+    store, now, _ = retained
+    root = add(store)
+    store.remember_question(root, {"question": "How many rows?"})
+    question_state.question_lock(root.dataset_id, "How many rows?")
+    assert store.conversation(root)
+    now[0] += 10
+    store.expire()
+    assert root.dataset_id not in store._conversations
+    assert not any(key[0] == root.dataset_id for key in question_state._locks)
+
+
 def test_model_response_cannot_restore_expired_cache(retained):
     store, now, _ = retained
     root = add(store)
@@ -277,7 +291,10 @@ def test_concurrent_adds_cannot_exceed_capacity(retained, monkeypatch):
 
 @pytest.mark.parametrize(
     "setting",
-    ["max_upload_bytes", "max_datasets", "dataset_ttl_seconds", "dashboard_cache_size"],
+    [
+        "max_upload_bytes", "max_datasets", "dataset_ttl_seconds",
+        "dashboard_cache_size", "question_max_turns",
+    ],
 )
 @pytest.mark.parametrize("value", [0, -1])
 def test_storage_settings_must_be_positive(setting, value):

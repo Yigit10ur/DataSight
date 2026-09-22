@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.analysis.models import (
     CategoricalSummary,
@@ -60,6 +60,7 @@ Scalar = bool | float | str
 
 
 class FilterClause(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     column: str
     operator: FilterOperator
     # Absent for the two missingness operators, a list for `in` and `not_in`, and a
@@ -165,7 +166,10 @@ class BinExpression(BaseModel):
 class DatetimePartExpression(BaseModel):
     kind: Literal["datetime_part"] = "datetime_part"
     column: str
-    part: Literal["year", "quarter", "month", "week", "weekday", "date", "hour"]
+    part: Literal[
+        "year", "quarter", "month", "week", "weekday", "date", "hour",
+        "year_month", "year_week", "year_quarter",
+    ]
 
 
 class MapValuesExpression(BaseModel):
@@ -347,4 +351,3 @@ class RecipePreview(BaseModel):
     reports: list[StepReport]
     analysis: RecipeAnalysis | None
     refusal: StepRefusal | None
-

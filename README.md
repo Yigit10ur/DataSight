@@ -14,6 +14,7 @@ Upload a CSV or Excel file to explore its structure, spot data quality issues, a
 - **Recipe previews and export:** inspect intermediate results, run a focused analysis, save a derived dataset in the current session, or download the transformed rows as CSV.
 - **Dataset lineage:** follow a derived dataset back through the transformations that produced it.
 - **Optional AI explanations:** enable plain-language summaries and explanations from the dashboard. Explanations are off by default.
+- **Ask Your Data:** turn on AI to ask validated natural-language questions, with Python-computed answers, charts, and contextual follow-ups.
 - **Light and dark themes.**
 
 ## Run locally
@@ -56,7 +57,8 @@ The frontend connects to `http://localhost:8000` by default. To use another back
 1. Upload a `.csv` or `.xlsx` file.
 2. Review the dataset profile, quality report, ranked findings, and charts.
 3. Use **Shape this data** and the column menus to build a recipe and preview its results.
-4. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
+4. Turn on **AI** and use **Ask your data** for questions such as “Which products generate the most revenue?”
+5. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
 
 Excel imports read the first worksheet. The default upload limit is 100 MiB.
 Files exceeding the configured limit receive HTTP 413. The application reads in
@@ -82,6 +84,14 @@ The backend sends column names, dataset summary statistics, quality scores, and 
 
 Generated explanations are checked for unsupported numbers and causal claims. If the model is unavailable or an explanation fails verification, the computed findings remain available.
 
+Ask Your Data uses two model calls for a successful new question: one selects a complete plan
+from a closed vocabulary, then Python validates and executes it; the other explains
+the verified result. No model-generated Python, SQL, pandas expression, `eval`, or
+`DataFrame.query` is accepted. Planning prompts contain schema metadata but no
+sample values or raw rows. Explanation results are capped at 20 aggregate rows;
+identifier-like, high-cardinality, and near-unique groupings are refused. Identical
+questions with the same resolved context reuse their stored response.
+
 Both `backend/.env` and `frontend/.env.local` are ignored by Git. Keep API keys in the backend environment file.
 
 ## Configuration
@@ -99,6 +109,7 @@ Backend settings are defined in [backend/app/config.py](backend/app/config.py) a
 | `DATASIGHT_DATASET_TTL_SECONDS` | `3600` | Fixed lifetime of an upload and its descendants, in seconds. Must be positive and finite. |
 | `DATASIGHT_MAX_DATASETS` | `100` | Maximum total uploaded and derived datasets retained by the backend process. Must be positive. |
 | `DATASIGHT_DASHBOARD_CACHE_SIZE` | `16` | Maximum datasets whose computed dashboard results are retained. Must be positive. |
+| `DATASIGHT_QUESTION_MAX_TURNS` | `10` | Maximum successful Ask Your Data turns retained per dataset. Must be positive. |
 | `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend setting; configure in `frontend/.env.local`. |
 
@@ -153,6 +164,7 @@ backend/
     ai/              Optional explanations and verification
     api/             FastAPI endpoints
     dashboard.py     Shared bounded dashboard computation cache
+    questions/       Typed question plans, validation, execution, and verified explanations
     store.py         In-memory datasets and lineage
   tests/             Backend test suite
 frontend/
@@ -202,7 +214,11 @@ DataFrame copies. This trades some memory for fewer repeated calculations; lower
 `DATASIGHT_DASHBOARD_CACHE_SIZE` where memory is tighter. Dataset expiration or
 removal clears its cache entry immediately.
 
-Natural-language questions and conversational follow-ups are planned. The current recipe interface offers structured transformations and analysis choices.
+Ask Your Data conversations are temporary and expire with their dataset. The
+current operation vocabulary covers aggregation, ranking, comparison,
+relationships, trends, distributions, counts, and column descriptions. Causal
+diagnosis, forecasting, arbitrary multi-stage programs, and interactive ambiguity
+clarification remain outside the MVP; see [MVP 3](MVP-3-plan.md).
 
 ## Design notes
 
@@ -210,7 +226,7 @@ Natural-language questions and conversational follow-ups are planned. The curren
 - [MVP 1](MVP-1.md): core ingestion, profiling, analysis, and visualization engine.
 - [MVP 2](MVP-2.md): quality scoring, ranked insights, and optional explanations.
 - [MVP 2.5 plan](MVP-2.5-plan.md): design behind the no-code recipe workflow.
-- [MVP 3 plan](MVP-3-plan.md): planned natural-language analysis.
+- [MVP 3](MVP-3-plan.md): implemented natural-language analysis and remaining scope.
 
 These documents record implementation milestones and plans; some details describe earlier versions.
 
