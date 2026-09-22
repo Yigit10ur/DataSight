@@ -15,6 +15,7 @@ Upload a CSV or Excel file to explore its structure, spot data quality issues, a
 - **Dataset lineage:** follow a derived dataset back through the transformations that produced it.
 - **Optional AI explanations:** enable plain-language summaries and explanations from the dashboard. Explanations are off by default.
 - **Ask Your Data:** turn on AI to ask validated natural-language questions, with Python-computed answers, charts, and contextual follow-ups.
+- **Example dataset:** a 60-row synthetic CSV in [example-data/](example-data/), with planted quality issues, so a fresh clone has something to upload.
 - **Light and dark themes.**
 
 ## Run locally
@@ -54,6 +55,9 @@ The frontend connects to `http://localhost:8000` by default. To use another back
 
 ### Try it
 
+New here? Follow the [walkthrough with the example data](#walkthrough-with-the-example-data)
+below, which needs no dataset and no API key of your own. Otherwise:
+
 1. Upload a `.csv` or `.xlsx` file.
 2. Review the dataset profile, quality report, ranked findings, and charts.
 3. Use **Shape this data** and the column menus to build a recipe and preview its results.
@@ -69,6 +73,114 @@ Datasets are temporary: by default, an upload and every dataset derived from it
 expire **one hour after the original upload**. Reading, previewing, and saving a
 recipe do not reset this deadline. Expired IDs return `404 Dataset not found.`
 Export your results with **Download CSV** before they expire.
+
+## Walkthrough with the example data
+
+[example-data/orders-sample.csv](example-data/orders-sample.csv) is a 60-row synthetic
+sales extract committed to this repository, so a fresh clone has something to upload.
+It is invented data with deliberate defects in it, and it needs no API key: every
+number below is computed in Python. See
+[example-data/README.md](example-data/README.md) for the columns and the full list of
+planted issues.
+
+The steps are written out rather than shown in screenshots or a recording: a picture
+of the interface goes stale the first time a label moves, and nothing fails to say so.
+These figures have a test behind them instead — see [Verifying it](#verifying-it).
+
+### 1. Start the app and upload the file
+
+Start the backend and the frontend as described under [Run locally](#run-locally),
+then open [http://localhost:3000](http://localhost:3000). Drop
+`example-data/orders-sample.csv` onto the upload area, or click it and pick the file.
+
+The dashboard appears with four tiles across the top:
+
+| Rows | Columns | Missing cells | Duplicate rows |
+| --- | --- | --- | --- |
+| 60 | 9 | 1.3% (7 cells) | 3 |
+
+Below them, the type badges read 4 numeric, 3 categorical, 1 datetime, 1 text.
+`discount_pct` is counted as categorical rather than numeric, which is one of the
+quality findings below.
+
+### 2. Read three of the findings
+
+**Data quality** reports a score of **80** out of 100 and lists 9 issues, 6 of them
+warnings. **What stands out** lists 10 findings, most important first. Three worth
+stopping on:
+
+1. **Three rows are duplicates.** Data quality: *"3 rows (5.0%) are exact duplicates
+   of another row."* `ORD-1004`, `ORD-1023`, and `ORD-1045` each appear twice, the way
+   a double import leaves them. Any total computed now counts those orders twice.
+
+2. **`discount_pct` holds numbers written as text.** Data quality: *"discount_pct is
+   stored as text but 93% of its values are numeric, so it is excluded from numeric
+   analysis."* Four rows say `pending`, and those four keep the whole column out of
+   the numeric charts — it appears under **Charts** as a bar chart of most common
+   values rather than as a distribution.
+
+3. **Orders are much larger in one region.** The leading finding under **What stands
+   out**: *"region = West has 1.8x the average order_total of North (440.5 against
+   239.5 across 60 rows)."* It comes with a box plot of `order_total` by `region`.
+
+The quality report also flags `delivery_days` missing in 11.7% of rows, three
+deliveries far outside the interquartile range, and `channel` spellings that differ
+only in case or spacing (`Online` / `online` / `" Online"`).
+
+### 3. Apply a recipe
+
+Finding 3 is worth a real answer — revenue by region — but finding 1 says the raw
+totals are wrong. The recipe fixes that first. Scroll to **Shape this data**:
+
+1. In the **Recipe** panel, click **+ add a step**, choose **Remove duplicate rows**
+   under *Rows*, and click **Add**. The preview footer now reads `60 → 57 rows`.
+2. In the preview table, click the **`region`** column heading, choose **Group by this
+   and summarise** under *Summarise*, set *taking the* to **total** and *of* to
+   **`order_total`**, and click **Add**.
+
+The preview footer reads `60 → 4 rows · 9 → 2 columns`, and the table shows:
+
+| region | sum_order_total |
+| --- | --- |
+| East | 4698.53 |
+| North | 3523.1 |
+| South | 3914.06 |
+| West | 6083.31 |
+
+Removing the duplicates is what makes these right. Delete the first step with the
+**×** next to it and East, North, and West jump to 4991.21, 3831.54, and 6606.83 —
+three regions overstated by one repeated order each. Add the step back before
+carrying on.
+
+### 4. Export the result
+
+Click **Download CSV** in the Recipe panel. The browser saves
+`orders-sample (2 steps).csv`, holding the four rows above. The export runs the
+recipe again and streams the rows; it stores nothing, so the download does not create
+a dataset or extend anything's lifetime.
+
+Totals are written at full floating-point precision, so the file reads
+`West,6083.3099999999995` where the table on screen rounds to `6083.31`. Any
+spreadsheet or reader will show the rounded figure.
+
+**Save as a dataset** instead keeps the four rows in the backend as a dataset of its
+own, with its own profile, findings, and lineage back to the upload. That dataset
+expires with the original upload — one hour after it — so download anything you want
+to keep.
+
+### Verifying it
+
+Every figure quoted above is asserted in
+[backend/tests/test_example_dataset.py](backend/tests/test_example_dataset.py), which
+reads the committed file exactly as an upload does. The example is deterministic, so
+a change to an analysis threshold — a missing-value band, a Tukey fence, the
+effect-size floor — fails that test instead of quietly making this walkthrough wrong.
+Run it on its own with:
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests/test_example_dataset.py -q
+```
 
 ## Optional AI explanations
 
@@ -167,6 +279,7 @@ backend/
     questions/       Typed question plans, validation, execution, and verified explanations
     store.py         In-memory datasets and lineage
   tests/             Backend test suite
+example-data/      Synthetic sample CSV used by the walkthrough
 frontend/
   app/               Next.js pages, layout, and styles
   components/        Dashboard, charts, and recipe interface
