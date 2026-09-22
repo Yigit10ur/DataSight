@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.ai.insight_explainer import clear_dataset_cache
 from app.config import settings
+from app.dashboard import clear_dashboard_cache
 from app.profiling.models import DatasetProfile
 from app.provenance import Provenance
 from app.recipes import Recipe, planned_columns, provenance_of, run_recipe
@@ -226,6 +227,7 @@ class DatasetStore:
             self._uploaded.pop(current, None)
             self._derived.pop(current, None)
             clear_dataset_cache(current)
+            clear_dashboard_cache(current)
 
     def derived_name(self, parent: StoredDataset, step_count: int) -> str:
         """Name a derived dataset after the file it came from and how far it has come."""

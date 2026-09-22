@@ -98,6 +98,7 @@ Backend settings are defined in [backend/app/config.py](backend/app/config.py) a
 | `DATASIGHT_MAX_UPLOAD_BYTES` | `104857600` | Maximum accepted file size in bytes. |
 | `DATASIGHT_DATASET_TTL_SECONDS` | `3600` | Fixed lifetime of an upload and its descendants, in seconds. Must be positive and finite. |
 | `DATASIGHT_MAX_DATASETS` | `100` | Maximum total uploaded and derived datasets retained by the backend process. Must be positive. |
+| `DATASIGHT_DASHBOARD_CACHE_SIZE` | `16` | Maximum datasets whose computed dashboard results are retained. Must be positive. |
 | `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend setting; configure in `frontend/.env.local`. |
 
@@ -151,6 +152,7 @@ backend/
     recipes/         Transformation validation and execution
     ai/              Optional explanations and verification
     api/             FastAPI endpoints
+    dashboard.py     Shared bounded dashboard computation cache
     store.py         In-memory datasets and lineage
   tests/             Backend test suite
 frontend/
@@ -167,7 +169,7 @@ DataSight is a development-stage application. Uploaded and derived datasets are 
 
 Expired datasets are removed during store access and by an idle sweep every 60
 seconds. Removal includes dependent recipes, profiles, cached derived frames, and
-cached AI explanations. Derived datasets share the original upload's deadline,
+cached dashboard results and AI explanations. Derived datasets share the original upload's deadline,
 so lineage never points to an expired parent. A full store refuses new uploads
 and derived saves with HTTP 409 instead of evicting work that has not expired.
 Expired entries are reclaimed before checking capacity. The count limit includes
@@ -184,6 +186,21 @@ body limits, request/concurrency limits, parsing time and memory budgets, XLSX
 expansion limits, and disk quotas. The API also has no authentication or per-user
 dataset access controls, and no durable storage; those capabilities must be planned
 separately before accepting private data from unrelated users.
+
+Dashboard endpoints share one deterministic computation per dataset. For a normal
+dashboard load (`charts`, `quality`, and `insights`), the previous request path ran
+the main analysis twice, chart generation twice, and quality checks twice. The
+shared path runs analysis, quality, chart generation, and insight generation once
+each; concurrent requests for the same dataset wait for that result. The existing
+endpoint response shapes are unchanged, and optional AI explanations remain a
+separate request that reuses the verified computed results.
+
+The dashboard cache defaults to 16 datasets and uses least-recently-used eviction.
+Entries are keyed by dataset ID, so uploaded and derived datasets cannot share
+results. They contain Pydantic result models, including bounded chart arrays, but no
+DataFrame copies. This trades some memory for fewer repeated calculations; lower
+`DATASIGHT_DASHBOARD_CACHE_SIZE` where memory is tighter. Dataset expiration or
+removal clears its cache entry immediately.
 
 Natural-language questions and conversational follow-ups are planned. The current recipe interface offers structured transformations and analysis choices.
 

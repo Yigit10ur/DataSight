@@ -7,12 +7,13 @@ from fastapi.responses import StreamingResponse
 
 from app.ai import ExplanationCollection, explain_insights
 from app.ai.insight_explainer import clear_dataset_cache
-from app.analysis import DatasetAnalysis, analyze_dataset
+from app.analysis import DatasetAnalysis
 from app.config import settings
+from app.dashboard import DashboardAnalysis, dashboard_cache
 from app.ingestion import DatasetValidationError, load_dataset
-from app.insights import InsightCollection, build_insights
+from app.insights import InsightCollection
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
-from app.quality import QualityReport, check_dataset_quality
+from app.quality import QualityReport
 from app.recipes import Recipe, RecipePreview, planned_columns, run_recipe
 from app.store import (
     DatasetLimit,
@@ -22,7 +23,7 @@ from app.store import (
     dataset_store,
     steps_phrase,
 )
-from app.visualization import ChartCollection, build_charts
+from app.visualization import ChartCollection
 
 router = APIRouter()
 
@@ -77,26 +78,19 @@ def get_preview(dataset_id: str, limit: int = 25) -> DatasetPreview:
 @router.get("/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis)
 def get_analysis(dataset_id: str) -> DatasetAnalysis:
     stored = _require_dataset(dataset_id)
-    return analyze_dataset(dataset_store.frame_of(stored), stored.profile)
+    return _dashboard(stored).analysis
 
 
 @router.get("/datasets/{dataset_id}/charts", response_model=ChartCollection)
 def get_charts(dataset_id: str) -> ChartCollection:
     stored = _require_dataset(dataset_id)
-    frame = dataset_store.frame_of(stored)
-    analysis = analyze_dataset(frame, stored.profile)
-    return build_charts(frame, stored.profile, analysis)
+    return _dashboard(stored).charts
 
 
 @router.get("/datasets/{dataset_id}/insights", response_model=InsightCollection)
 def get_insights(dataset_id: str) -> InsightCollection:
     stored = _require_dataset(dataset_id)
-    frame = dataset_store.frame_of(stored)
-    shaped = dataset_store.provenance(stored)
-    analysis = analyze_dataset(frame, stored.profile)
-    charts = build_charts(frame, stored.profile, analysis)
-    quality = check_dataset_quality(frame, stored.profile, shaped)
-    return build_insights(stored.profile, analysis, quality, charts.charts, shaped)
+    return _dashboard(stored).insights
 
 
 @router.get("/datasets/{dataset_id}/explanations", response_model=ExplanationCollection)
@@ -107,13 +101,10 @@ def get_explanations(dataset_id: str) -> ExplanationCollection:
     the numbers.
     """
     stored = _require_dataset(dataset_id)
-    frame = dataset_store.frame_of(stored)
-    shaped = dataset_store.provenance(stored)
-    analysis = analyze_dataset(frame, stored.profile)
-    charts = build_charts(frame, stored.profile, analysis)
-    quality = check_dataset_quality(frame, stored.profile, shaped)
-    insights = build_insights(stored.profile, analysis, quality, charts.charts, shaped)
-    result = explain_insights(stored.profile, quality.score, insights.insights)
+    dashboard = _dashboard(stored)
+    result = explain_insights(
+        stored.profile, dashboard.quality.score, dashboard.insights.insights
+    )
     if dataset_store.get(dataset_id) is None:
         # A request already computing findings may start its model call after a
         # sweep. Do not retain that late answer for a deleted dataset either.
@@ -125,9 +116,7 @@ def get_explanations(dataset_id: str) -> ExplanationCollection:
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)
 def get_quality(dataset_id: str) -> QualityReport:
     stored = _require_dataset(dataset_id)
-    return check_dataset_quality(
-        dataset_store.frame_of(stored), stored.profile, dataset_store.provenance(stored)
-    )
+    return _dashboard(stored).quality
 
 
 @router.post("/datasets/{dataset_id}/recipe/preview", response_model=RecipePreview)
@@ -274,3 +263,20 @@ def _require_dataset(dataset_id: str) -> StoredDataset:
     if stored is None:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     return stored
+
+
+def _dashboard(stored: StoredDataset) -> DashboardAnalysis:
+    """Compute once for this immutable dataset and reject a result that expired."""
+    frame = dataset_store.frame_of(stored)
+    shaped = dataset_store.provenance(stored)
+    result = dashboard_cache.get_or_compute(
+        stored.dataset_id,
+        frame,
+        stored.profile,
+        shaped,
+        retain=lambda: dataset_store.get(stored.dataset_id) is stored,
+    )
+    if dataset_store.get(stored.dataset_id) is not stored:
+        dashboard_cache.remove(stored.dataset_id)
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return result

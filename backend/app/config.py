@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(default=100 * 1024 * 1024, gt=0)
     dataset_ttl_seconds: float = Field(default=3600, gt=0, allow_inf_nan=False)
     max_datasets: int = Field(default=100, gt=0)
+    dashboard_cache_size: int = Field(default=16, gt=0)
 
     # Explaining a finding is a writing task over numbers that are already settled,
     # so it does not need the largest model.

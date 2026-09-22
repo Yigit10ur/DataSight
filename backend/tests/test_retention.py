@@ -275,7 +275,10 @@ def test_concurrent_adds_cannot_exceed_capacity(retained, monkeypatch):
     assert len(store._datasets) == len(store._uploaded) == 2
 
 
-@pytest.mark.parametrize("setting", ["max_upload_bytes", "max_datasets", "dataset_ttl_seconds"])
+@pytest.mark.parametrize(
+    "setting",
+    ["max_upload_bytes", "max_datasets", "dataset_ttl_seconds", "dashboard_cache_size"],
+)
 @pytest.mark.parametrize("value", [0, -1])
 def test_storage_settings_must_be_positive(setting, value):
     with pytest.raises(ValidationError):
