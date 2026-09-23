@@ -1,5 +1,11 @@
 # MVP 2 — Insight Engine
 
+> **Status:** historical record. The `ai/` layer, the `/explanations` endpoint, the header
+> switch, and the `DATASIGHT_ANTHROPIC_API_KEY` / `DATASIGHT_EXPLANATION_*` settings described
+> here were removed. The backend now **refuses to start** if those settings are still in
+> `backend/.env`. The insight engine, quality score, and ranking remain. See
+> [README.md](README.md) for the current app.
+
 MVP 1 answered *what is in this file*. MVP 2 answers *what is worth knowing about it*, and
 then says it in plain language.
 

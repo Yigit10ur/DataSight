@@ -1,7 +1,9 @@
 # MVP 2.5 — Shape Your Data (plan)
 
-This is a plan, not a record. `MVP-1.md` and `MVP-2.md` describe what was built; this describes
-what is intended, and should be replaced by a record of the same name once it is.
+> **Status:** implemented. This was written as a plan before the recipe engine was built and is
+> kept as its design record; details may differ from the code. The references below to Ask Your
+> Data, MVP 3, the model, and the `ai/` layer describe features that were later removed. See
+> [README.md](README.md) for the current app.
 
 MVP 1 answered *what is in this file*. MVP 2 answered *what is worth knowing about it*. Both
 decided for the reader — the reader only chose a file. MVP 2.5 hands part of that choice over:

@@ -183,6 +183,11 @@ cd backend
 
 Backend settings are defined in [backend/app/config.py](backend/app/config.py) and can be supplied through environment variables or `backend/.env`.
 
+`backend/.env` may only contain the backend settings below. The backend refuses to start if
+the file has any other key, including `DATASIGHT_ANTHROPIC_API_KEY` and the
+`DATASIGHT_EXPLANATION_*` settings from earlier versions; delete those lines. Unrecognised
+environment variables are ignored.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DATASIGHT_MAX_UPLOAD_BYTES` | `104857600` | Maximum accepted file size in bytes. |
@@ -239,6 +244,7 @@ backend/
     recipes/         Transformation validation and execution
     api/             FastAPI endpoints
     dashboard.py     Shared bounded dashboard computation cache
+    provenance.py    What a recipe changed about the meaning of a dataset's rows
     store.py         In-memory datasets and lineage
   tests/             Backend test suite
 example-data/      Synthetic sample CSV used by the walkthrough
@@ -294,8 +300,11 @@ removal clears its cache entry immediately.
 - [MVP 1](MVP-1.md): core ingestion, profiling, analysis, and visualization engine.
 - [MVP 2](MVP-2.md): quality scoring and ranked insights.
 - [MVP 2.5 plan](MVP-2.5-plan.md): design behind the no-code recipe workflow.
+- [MVP 3 plan](MVP-3-plan.md): Ask Your Data, a natural-language question feature that was built and later removed.
 
-These documents record implementation milestones and plans; some details describe earlier versions.
+These documents record implementation milestones and plans. Some details describe earlier
+versions, including an optional LLM layer (MVP 2 explanations and MVP 3 questions) that has
+since been removed; each document opens with a note on its current status.
 
 ## License
 

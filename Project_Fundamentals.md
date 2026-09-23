@@ -1,12 +1,12 @@
-# AI Data Insight Engine
+# DataSight
 
 ## 1. Project Vision
 
-AI Data Insight Engine is an AI-assisted data analysis application.
+DataSight is a data analysis application.
 
 The main goal is simple:
 
-> A user uploads a CSV or Excel dataset, and the system automatically discovers, analyzes, visualizes, and explains the most important insights in the data.
+> A user uploads a CSV or Excel dataset, and the system automatically discovers, analyzes, and visualizes the most important insights in the data, then lets the user shape it further without writing code.
 
 The product should behave like an intelligent first-pass data analyst rather than a simple visualization dashboard.
 
@@ -26,37 +26,33 @@ rather than simply generating large numbers of charts.
 
 The most important architectural principle of the project is:
 
-> **Python calculates. AI explains.**
+> **Python calculates.**
 
-The LLM should not be trusted to calculate statistics directly from raw data.
+Every number, score, finding, and chart shown to the user is computed by deterministic Python code. There is no language model in the product and no API key is needed.
 
-Instead:
-
-```text id="jwf1g3"
+```text
 Dataset
     ↓
 Python Analysis Engine
     ↓
 Structured Statistical Results
     ↓
-LLM
+Ranked Findings and Messages
     ↓
-Human-Readable Insights
+Dashboard
 ```
 
-Python and deterministic analytical tools should calculate metrics, statistics, correlations, anomalies, aggregations, and other quantitative results.
+Python and deterministic analytical tools calculate metrics, statistics, correlations, outliers, aggregations, and other quantitative results. Findings are written from those results by templates, so every figure in a sentence is a figure the engine produced.
 
-The AI layer should interpret those verified results and communicate them clearly to the user.
-
-Whenever deterministic code can solve a problem reliably, it should be preferred over AI.
+Earlier versions added an optional LLM layer that wrote explanations and planned natural-language questions (see [MVP 2](MVP-2.md) and [MVP 3](MVP-3-plan.md)). It was removed: every result is now computed and phrased in Python.
 
 ---
 
 ## 3. Core Workflow
 
-The basic application flow should be:
+The application flow is:
 
-```text id="szkh2n"
+```text
 CSV / Excel Upload
         ↓
 Dataset Validation
@@ -73,19 +69,19 @@ Insight Discovery
         ↓
 Visualization
         ↓
-AI Interpretation
+Shape the Data (no-code recipes)
         ↓
-Interactive "Ask Your Data"
+Export or Save as a Derived Dataset
 ```
 
 ---
 
 ## 4. Supported Input
 
-Initial versions should support:
+Supported formats:
 
 - `.csv`
-- `.xlsx`
+- `.xlsx` (first worksheet)
 
 Possible future formats:
 
@@ -95,17 +91,15 @@ Possible future formats:
 - APIs
 - Cloud data warehouses
 
-CSV and Excel should be prioritized for the MVP.
-
 ---
 
 ## 5. Dataset Profiling
 
-Immediately after upload, the system should generate a dataset overview.
+Immediately after upload, the system generates a dataset overview.
 
 Example:
 
-```text id="l7mg0u"
+```text
 Dataset: sales.csv
 
 Rows: 52,340
@@ -136,7 +130,7 @@ The profiling engine should automatically detect:
 
 ## 6. Automatic Exploratory Data Analysis
 
-The system should automatically perform EDA depending on column types.
+The system automatically performs EDA depending on column types.
 
 ### Numeric Features
 
@@ -214,7 +208,7 @@ Possible visualization:
 
 ## 7. Data Quality Engine
 
-The application should detect common data quality problems.
+The application detects common data quality problems.
 
 Examples:
 
@@ -231,7 +225,7 @@ Examples:
 
 Example insights:
 
-```text id="qbdq2r"
+```text
 ⚠ customer_age contains 7.2% missing values.
 
 ⚠ 14 rows contain ages above 120 and may represent data-entry errors.
@@ -243,11 +237,11 @@ Example insights:
 
 ## 8. Data Quality Score
 
-A future feature should generate an overall dataset quality score.
+The application generates an overall dataset quality score.
 
 Example:
 
-```text id="5clkg7"
+```text
 Data Quality Score: 82 / 100
 
 Completeness:      88
@@ -257,9 +251,7 @@ Outlier Score:     71
 Type Consistency:  84
 ```
 
-The scoring methodology should be deterministic and explainable.
-
-The LLM should explain the score but should NOT calculate it.
+The scoring methodology is deterministic and explainable: each dimension lists the columns that cost it points and the issues behind them.
 
 ---
 
@@ -267,11 +259,11 @@ The LLM should explain the score but should NOT calculate it.
 
 One of the most important components of the application.
 
-The system should attempt to automatically identify interesting patterns.
+The system attempts to automatically identify interesting patterns.
 
 Examples:
 
-```text id="hjg0xi"
+```text
 Revenue increased 18% during Q4.
 
 Enterprise customers generate 2.4x higher average revenue.
@@ -283,7 +275,7 @@ Marketing spend and revenue have a strong positive correlation (r = 0.81).
 17 transactions have unusually high values compared with the rest of the dataset.
 ```
 
-Insights should be ranked by importance.
+Insights are ranked by importance.
 
 Possible categories:
 
@@ -298,94 +290,17 @@ Possible categories:
 - Rare categories
 - Time-series patterns
 
----
-
-## 10. AI Layer
-
-The LLM should primarily be used for:
-
-- Insight explanation
-- Natural-language summaries
-- Analysis planning
-- User interaction
-- Data-cleaning explanations
-- Translating statistical results into understandable language
-
-The LLM should NOT be the source of truth for quantitative results.
-
-For example, the analysis engine may produce:
-
-```json id="7wktnb"
-{
-  "relationship": {
-    "feature_a": "marketing_spend",
-    "feature_b": "revenue",
-    "pearson_correlation": 0.81,
-    "sample_size": 52340
-  }
-}
-```
-
-The LLM can transform this into:
-
-> Marketing spend and revenue show a strong positive relationship (r = 0.81). However, this relationship should not automatically be interpreted as causal.
-
-### Critical Rule
-
-> **Python calculates. AI explains.**
-
-Every quantitative AI-generated statement should be grounded in results produced by the analysis engine.
+Each finding carries caveats where the statistics call for them. A correlation, for example, is reported as an association and never as a cause.
 
 ---
 
-## 11. Ask Your Data
+## 10. Visualization Recommendation Engine
 
-Users should eventually be able to interact with their dataset through natural language.
-
-Example:
-
-```text id="i8x7rq"
-User:
-Which products generate the most revenue?
-```
-
-The system should:
-
-1. Understand the question.
-2. Determine the required analysis.
-3. Execute the analysis using the Python data engine.
-4. Validate the result.
-5. Generate an appropriate visualization when useful.
-6. Explain the result using AI.
-
-Example response:
-
-```text id="zix0nq"
-Product A generated the highest total revenue.
-
-It accounted for approximately 23.4% of total sales.
-```
-
-Follow-up questions should also be supported.
-
-Example:
-
-```text id="0tt8fj"
-User:
-Compare the top three products by month.
-```
-
-The application should understand the conversational context and perform another analysis.
-
----
-
-## 12. Visualization Recommendation Engine
-
-The application should automatically choose reasonable visualizations.
+The application automatically chooses reasonable visualizations.
 
 Basic rules:
 
-```text id="k7vw12"
+```text
 Numeric
 → Histogram / Box Plot
 
@@ -409,42 +324,40 @@ The visualization system should prioritize useful charts rather than generating 
 
 ---
 
-## 13. Data Cleaning Suggestions
+## 11. Shaping Data: No-Code Recipes
 
-The application may recommend cleaning operations.
+Users shape a dataset by building a **recipe**: an ordered list of typed steps, each validated against the schema it will meet before anything runs.
 
-Examples:
+Available steps include filtering and sorting rows, selecting and renaming columns, changing types, filling missing values, removing duplicates, deriving columns, and aggregating groups. A recipe can end in a focused analysis of the shaped data.
 
-```text id="1r2skj"
+```text
+Build a Step
+      ↓
+Validate Against the Schema
+      ↓
+Preview the Result
+      ↓
+Download CSV or Save as a Derived Dataset
+```
+
+The uploaded data is never modified. A recipe is stored rather than its output, every step can be removed, and a derived dataset keeps its lineage back to the upload.
+
+Future versions may suggest steps from quality findings:
+
+```text
 customer_age contains 3% missing values.
 Median imputation may be appropriate.
-
-CustomerID appears to be an identifier and should probably not be used as a predictive feature.
 
 Three categories may represent different spellings of the same city.
 ```
 
-Initially, the application should recommend transformations instead of automatically modifying the dataset.
-
-Future versions may allow:
-
-```text id="fl8h8f"
-Suggested Action
-      ↓
-User Approval
-      ↓
-Apply Transformation
-      ↓
-Show Before / After
-```
-
-Every modification should be reversible.
+A suggestion should become an ordinary recipe step that the user approves and can remove.
 
 ---
 
-## 14. Anomaly Detection
+## 12. Anomaly Detection
 
-Future versions can include automatic anomaly detection.
+Future versions can include dedicated anomaly detection beyond the current IQR-based outlier checks.
 
 Initial methods:
 
@@ -460,15 +373,15 @@ The system should explain why an observation was flagged instead of simply label
 
 ---
 
-## 15. Machine Learning Suggestions
+## 13. Machine Learning Suggestions
 
-This is NOT required for the first MVP.
+This is not part of the current application.
 
 Future versions may inspect datasets and identify potential ML tasks.
 
 Example:
 
-```text id="c1j9qx"
+```text
 Potential ML Task
 
 Problem:
@@ -498,12 +411,14 @@ However:
 
 ---
 
-## 16. Proposed Technical Architecture
+## 14. Technical Architecture
 
 ### Frontend
 
-```text id="ld1z6v"
-React / Next.js
+```text
+Next.js / React / TypeScript
+Tailwind CSS
+Plotly
 ```
 
 Responsibilities:
@@ -513,11 +428,11 @@ Responsibilities:
 - Charts
 - Insight cards
 - Data preview
-- Chat interface
+- Recipe builder and previews
 
 ### Backend
 
-```text id="l21vnr"
+```text
 Python
 FastAPI
 ```
@@ -526,102 +441,50 @@ Responsibilities:
 
 - File processing
 - Analysis requests
-- Dataset management
-- AI orchestration
+- Dataset management and lineage
+- Recipe validation and execution
 
 ### Data Analysis
 
-```text id="hns2jg"
+```text
 Pandas
 NumPy
 SciPy
-scikit-learn
 ```
 
-### Visualization
-
-```text id="dtusmy"
-Plotly
-```
-
-### AI Layer
-
-LLM API used for:
-
-- Insight explanation
-- Analysis planning
-- Natural-language interaction
-- Summaries
-- Data-cleaning explanations
+scikit-learn is listed in the backend requirements for future ML work but is not used yet.
 
 ---
 
-## 17. Suggested Internal Architecture
+## 15. Internal Architecture
 
-Avoid building the entire backend as one large analysis script.
+The backend is built from modular components rather than one large analysis script:
 
-Prefer modular components.
-
-Example:
-
-```text id="gktygk"
-backend/
-
-    ingestion/
-        csv_loader
-        excel_loader
-        validator
-
-    profiling/
-        schema_detector
-        column_profiler
-        dataset_profiler
-
-    quality/
-        missing_detector
-        duplicate_detector
-        consistency_checker
-
-    analysis/
-        numeric_analysis
-        categorical_analysis
-        correlation_analysis
-        datetime_analysis
-
-    anomaly/
-        outlier_detector
-
-    insights/
-        insight_generator
-        insight_ranker
-
-    visualization/
-        chart_selector
-        chart_generator
-
-    ai/
-        llm_client
-        prompt_builder
-        insight_explainer
-        query_planner
-
-    api/
-        routes
+```text
+backend/app/
+    ingestion/       csv_loader, excel_loader, validator
+    profiling/       schema_detector, dataset_profiler, preview
+    quality/         missing, duplicate, consistency, and structure detectors; score
+    analysis/        numeric, categorical, correlation, group, and datetime analysis
+    insights/        insight_generator, insight_ranker, formatting
+    visualization/   chart_selector, chart_generator
+    recipes/         schema, validator, executor, provenance
+    api/             routes
+    dashboard.py     shared, bounded dashboard computation cache
+    store.py         in-memory datasets and lineage
 ```
 
-The exact folder structure can change during development.
-
-The important principle is separation of concerns.
+The folder structure can change during development. The important principle is separation of concerns.
 
 ---
 
-## 18. Structured Insight Model
+## 16. Structured Insight Model
 
-Insights should preferably have a structured internal representation.
+Insights have a structured internal representation.
 
 Example:
 
-```json id="r93pn7"
+```json
 {
   "type": "correlation",
   "importance": 0.86,
@@ -641,17 +504,14 @@ This makes it easier to:
 - Rank insights
 - Filter insights
 - Generate UI cards
-- Send information to the LLM
+- Attach caveats and charts
 - Test the analysis engine
-- Prevent hallucinations
 
 ---
 
-## 19. MVP Roadmap
+## 17. MVP Roadmap
 
-### MVP 1 — Core Data Engine
-
-Implement:
+### MVP 1 — Core Data Engine (done)
 
 - CSV upload
 - Excel upload
@@ -666,33 +526,31 @@ Implement:
 - Basic outlier detection
 - Automatic charts
 
-No complex AI agent is necessary yet.
-
-### MVP 2 — Insight Engine
-
-Add:
+### MVP 2 — Insight Engine (done)
 
 - Structured insight generation
 - Insight ranking
-- LLM explanations
-- Data quality summary
+- Data quality score
 - Better visualization recommendations
 
-### MVP 3 — Ask Your Data
+MVP 2 also shipped optional LLM explanations. They have since been removed.
 
-Add:
+### MVP 2.5 — Shape Your Data (done)
 
-- Natural-language data questions
-- Analysis planning
-- Dynamic chart generation
-- Follow-up questions
-- Conversational context
+- No-code recipes
+- Recipe previews
+- Derived datasets with lineage
+- CSV export
 
-### MVP 4 — Advanced Analytics
+### MVP 3 — Ask Your Data (removed)
+
+Natural-language questions, analysis planning, and conversational follow-ups were built on top of the recipe engine, then removed along with every other model-dependent feature.
+
+### Next — Advanced Analytics
 
 Potential features:
 
-- Data-cleaning workflow
+- Cleaning suggestions that become recipe steps
 - Advanced anomaly detection
 - Automatic ML task detection
 - Baseline ML models
@@ -701,55 +559,28 @@ Potential features:
 
 ---
 
-## 20. Development Priorities
+## 18. Development Priorities
 
 When implementing features, prioritize in this order:
 
-```text id="jvkku9"
+```text
 1. Correctness
 2. Reproducibility
 3. Useful insights
 4. Explainability
 5. User experience
-6. AI capabilities
-7. Advanced ML
+6. Advanced ML
 ```
 
-Do not add AI simply because a feature can use AI.
-
-If deterministic Python/statistical logic can solve the problem more reliably, prefer it.
+If deterministic Python or statistical logic can solve a problem reliably, prefer it.
 
 ---
 
-## 21. Important Engineering Principles
+## 19. Important Engineering Principles
 
-### Avoid Hallucinated Insights
+### Every Number Comes From Computation
 
-Every quantitative statement shown to the user should originate from actual computation whenever possible.
-
-Bad architecture:
-
-```text id="lrzpgt"
-Raw Dataset
-    ↓
-LLM
-    ↓
-Statistical Claims
-```
-
-Preferred architecture:
-
-```text id="mb2o6h"
-Raw Dataset
-    ↓
-Python
-    ↓
-Verified Structured Results
-    ↓
-LLM
-    ↓
-Explanation
-```
+Every quantitative statement shown to the user originates from actual computation. Messages are built from computed results, never written independently of them.
 
 ### Separate Analysis From Presentation
 
@@ -757,14 +588,7 @@ Statistical analysis should not depend on the frontend.
 
 ### Keep Raw Data Handling Controlled
 
-Do not unnecessarily send entire datasets to an external LLM.
-
-Prefer sending:
-
-- Schema
-- Aggregations
-- Statistical results
-- Selected samples when necessary
+Datasets stay in the backend process. They are not sent to external services, and they expire after a fixed lifetime.
 
 ### Explain Important Results
 
@@ -781,34 +605,26 @@ The system must clearly distinguish:
 
 ---
 
-## 22. Long-Term Product Direction
+## 20. Long-Term Product Direction
 
 The project can eventually evolve from:
 
-```text id="m2fb6m"
+```text
 Automatic EDA Tool
 ```
 
 into:
 
-```text id="u4z7g5"
-AI Data Analyst
-```
-
-and potentially:
-
-```text id="9m8upj"
-AI Analytics Platform
+```text
+No-Code Analytics Workbench
 ```
 
 The long-term experience could become:
 
-```text id="t4x5su"
+```text
 Upload Data
      ↓
 "What happened?"
-     ↓
-"Why did it happen?"
      ↓
 "What should I investigate?"
      ↓
@@ -821,14 +637,12 @@ Upload Data
 
 ---
 
-## 23. Final Product Goal
+## 21. Final Product Goal
 
-The central goal of AI Data Insight Engine is:
+The central goal of DataSight is:
 
 > **Turn raw datasets into trustworthy, understandable, and actionable insights with minimal manual effort.**
 
-The application should not try to replace statistical computation with an LLM.
+Statistical computation stays deterministic, reproducible, and testable:
 
-Instead, it should combine the strengths of deterministic data analysis and modern language models:
-
-> **Python calculates. AI explains.**
+> **Python calculates.**

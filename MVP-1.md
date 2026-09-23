@@ -1,5 +1,8 @@
 # MVP 1 — Core Data Engine
 
+> **Status:** historical record. The LLM layer mentioned below was added in MVP 2 and later
+> removed; DataSight now has no model at all. See [README.md](README.md) for the current app.
+
 MVP 1 delivers the first half of the product promise in `Project_Fundamentals.md`: upload a
 CSV or Excel file and immediately see what is in it — its shape, its column types, its quality
 problems, its distributions and its relationships.

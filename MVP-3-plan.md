@@ -1,5 +1,10 @@
 # MVP 3 — Ask Your Data
 
+> **Status:** removed. Ask Your Data was implemented and later removed along with every other
+> model-dependent feature, including the `questions/` package, the question endpoint, and
+> `DATASIGHT_QUESTION_MAX_TURNS`. This document is kept as a design record. The recipe engine it
+> built on remains; see [MVP-2.5-plan.md](MVP-2.5-plan.md).
+
 MVP 3 is implemented. A reader can ask a natural-language question about the
 current dataset, receive an answer calculated by Python, view a suitable chart,
 and ask a contextual follow-up.
