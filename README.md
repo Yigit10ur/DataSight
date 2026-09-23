@@ -61,7 +61,8 @@ below, which needs no dataset of your own. Otherwise:
 3. Use **Shape this data** and the column menus to build a recipe and preview its results.
 4. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
 
-Excel imports read the first worksheet. The default upload limit is 100 MiB.
+Excel imports read the first worksheet. The default upload limit is 100 MiB, and a
+file may have at most 1,000 columns.
 Files exceeding the configured limit receive HTTP 413. The application reads in
 chunks and stops after at most the limit plus one byte, before parsing or storing
 an oversized file. Existing CSV and XLSX content validation still applies.

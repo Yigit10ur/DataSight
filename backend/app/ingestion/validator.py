@@ -4,6 +4,10 @@ import pandas as pd
 
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx"}
 
+# Far wider than any table a reader explores column by column. Building millions of
+# columns from a crafted header line stalls parsing for minutes.
+MAX_COLUMNS = 1000
+
 
 class DatasetValidationError(Exception):
     """Raised when an uploaded file cannot be accepted as a dataset."""
@@ -29,5 +33,11 @@ def validate_dataframe(frame: pd.DataFrame) -> None:
     """Check that a parsed file is usable as a dataset."""
     if frame.shape[1] == 0:
         raise DatasetValidationError("No columns could be parsed from the file.")
+    if frame.shape[1] > MAX_COLUMNS:
+        raise DatasetValidationError(too_many_columns(frame.shape[1]))
     if frame.shape[0] == 0:
         raise DatasetValidationError("The file contains headers but no data rows.")
+
+
+def too_many_columns(count: int) -> str:
+    return f"The file has {count} columns; at most {MAX_COLUMNS} are supported."
