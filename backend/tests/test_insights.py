@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 
 from app.analysis import analyze_dataset
-from app.ai import untraceable_numbers
 from app.insights import build_insights, generate_insights
 from app.profiling import profile_dataset
 from app.quality import check_dataset_quality
@@ -271,76 +270,3 @@ def test_each_insight_points_at_a_chart_that_exists():
 
     assert linked
     assert all(insight.chart_id in chart_ids for insight in linked)
-
-
-def test_no_message_contains_a_number_that_is_not_in_its_metrics():
-    frames = [
-        pd.DataFrame(
-            {
-                "day": pd.date_range("2024-01-01", periods=120).astype(str),
-                "segment": ["enterprise"] * 60 + ["smb"] * 60,
-                "spend": np.linspace(1, 120, 120),
-                "revenue": np.concatenate([np.full(59, 100.0), np.full(61, 400.0)]),
-                "age": [*np.linspace(20, 60, 80), *[None] * 40],
-            }
-        ),
-        pd.DataFrame({"revenue": [*np.full(180, 100.0), *np.linspace(1000, 9000, 20)]}),
-        pd.DataFrame({"city": ["Ankara"] * 400 + [f"village-{index}" for index in range(20)]}),
-        pd.DataFrame(
-            {
-                "month": pd.date_range("2020-01-01", periods=48, freq="MS").astype(str),
-                "revenue": [
-                    100 + 50 * np.sin(2 * np.pi * month.month / 12)
-                    for month in pd.date_range("2020-01-01", periods=48, freq="MS")
-                ],
-            }
-        ),
-        falling_frame(),
-    ]
-
-    checked = 0
-    for frame in frames:
-        for insight in insights_for(frame):
-            leftover = untraceable_numbers(insight.message, insight.metrics, insight.columns)
-            assert leftover == set(), insight.message
-            checked += 1
-
-    assert checked >= 8
-
-
-def falling_frame() -> pd.DataFrame:
-    """A file whose findings are negative: a falling trend and an inverse pair.
-
-    Every other frame in this module rises, which is how a sign bug in the
-    number check survived — the generator's own messages print a magnitude
-    unsigned ("fell 31.6%") against a metric of -0.316.
-    """
-    rng = np.random.default_rng(3)
-    return pd.DataFrame(
-        {
-            "day": pd.date_range("2024-01-01", periods=300).astype(str),
-            "price": np.linspace(100, 20, 300) + rng.normal(0, 2, 300),
-            "units": np.linspace(20, 100, 300) + rng.normal(0, 2, 300),
-        }
-    )
-
-
-def test_a_negative_metric_is_traceable_from_the_message_that_prints_it():
-    insights = insights_for(falling_frame())
-
-    falling = [
-        insight
-        for insight in insights
-        if insight.metrics.get("trend") == "falling"
-    ]
-    inverse = [
-        insight
-        for insight in insights
-        if insight.insight_type == "correlation" and insight.metrics["pearson"] < 0
-    ]
-    assert falling, "the frame stopped producing a falling trend"
-    assert inverse, "the frame stopped producing a negative correlation"
-
-    for insight in falling + inverse:
-        leftover = untraceable_numbers(insight.message, insight.metrics, insight.columns)
-        assert leftover == set(), insight.message

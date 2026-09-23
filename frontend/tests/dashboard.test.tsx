@@ -93,7 +93,7 @@ test("uploads the selected file and disables the chooser while analysis is pendi
   expect(screen.getByRole("button", { name: "Choose file" })).toBeEnabled();
 });
 
-test("renders the computed dashboard and preview without requesting AI explanations", async () => {
+test("renders the computed dashboard and preview", async () => {
   await upload();
   expect(await screen.findByText("sales.csv")).toBeVisible();
   expect(screen.getByText("Rows").nextElementSibling).toHaveTextContent("3");
@@ -102,7 +102,6 @@ test("renders the computed dashboard and preview without requesting AI explanati
   expect(screen.getByText("Revenue is concentrated at the lower end.")).toBeVisible();
   expect(screen.getByText("Revenue distribution")).toBeVisible();
   expect(await screen.findByRole("cell", { name: "240" })).toBeVisible();
-  expect(requests.some(({ path }) => path.endsWith("/explanations"))).toBe(false);
 });
 
 test("shows the API error and lets the user retry the same file", async () => {

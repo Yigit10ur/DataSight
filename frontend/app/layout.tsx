@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Data Insight Engine",
+  title: "DataSight",
   description: "Upload a dataset and get an instant first-pass analysis.",
 };
 

@@ -1,7 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
-import { storeExplanationsChoice } from "@/lib/explanations";
 
 beforeEach(() => {
   const storage = new Map<string, string>();
@@ -13,14 +12,13 @@ beforeEach(() => {
     key: (index: number) => [...storage.keys()][index] ?? null,
     get length() { return storage.size; },
   });
-  storeExplanationsChoice("off");
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
     matches: false,
     media: query,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   })));
-  // No test may fall through to a live backend or a paid explanation request.
+  // No test may fall through to a live backend.
   vi.stubGlobal("fetch", vi.fn(() => {
     throw new Error("Unexpected network request: install a test API handler");
   }));

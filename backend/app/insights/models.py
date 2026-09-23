@@ -25,7 +25,7 @@ class Insight(BaseModel):
 
     Every number in `message` is also in `metrics`. That is what makes the finding
     checkable: the sentence is a rendering of the numbers, never a claim beside
-    them, and the explanation layer later gets the metrics rather than the prose.
+    them.
     """
 
     id: str

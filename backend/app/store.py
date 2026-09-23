@@ -9,10 +9,8 @@ from typing import Callable
 import pandas as pd
 from pydantic import BaseModel
 
-from app.ai.insight_explainer import clear_dataset_cache
 from app.config import settings
 from app.dashboard import clear_dashboard_cache
-from app.question_state import clear_question_state
 from app.profiling.models import DatasetProfile
 from app.provenance import Provenance
 from app.recipes import Recipe, planned_columns, provenance_of, run_recipe
@@ -103,7 +101,6 @@ class DatasetStore:
         self._datasets: dict[str, StoredDataset] = {}
         self._uploaded: dict[str, pd.DataFrame] = {}
         self._derived: OrderedDict[str, pd.DataFrame] = OrderedDict()
-        self._conversations: dict[str, list[dict]] = {}
 
     def new_id(self) -> str:
         return uuid.uuid4().hex
@@ -190,18 +187,6 @@ class DatasetStore:
         return chain
 
     @synchronized
-    def conversation(self, stored: StoredDataset) -> list[dict]:
-        self._require_live(stored)
-        return [dict(turn) for turn in self._conversations.get(stored.dataset_id, [])]
-
-    @synchronized
-    def remember_question(self, stored: StoredDataset, turn: dict) -> None:
-        self._require_live(stored)
-        turns = self._conversations.setdefault(stored.dataset_id, [])
-        turns.append(dict(turn))
-        del turns[:-settings.question_max_turns]
-
-    @synchronized
     def expire(self) -> None:
         """Prune expired families, also called periodically while the server is idle."""
 
@@ -240,10 +225,7 @@ class DatasetStore:
             self._datasets.pop(current, None)
             self._uploaded.pop(current, None)
             self._derived.pop(current, None)
-            self._conversations.pop(current, None)
-            clear_dataset_cache(current)
             clear_dashboard_cache(current)
-            clear_question_state(current)
 
     def derived_name(self, parent: StoredDataset, step_count: int) -> str:
         """Name a derived dataset after the file it came from and how far it has come."""

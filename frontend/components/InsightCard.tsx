@@ -41,11 +41,9 @@ const TYPE_COLORS: Record<InsightType, string> = {
 export function InsightCard({
   insight,
   chart,
-  explanation,
 }: {
   insight: Insight;
   chart?: ChartSpec;
-  explanation?: string;
 }) {
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -59,15 +57,6 @@ export function InsightCard({
       </span>
 
       <p className="text-sm leading-relaxed">{insight.message}</p>
-
-      {explanation && (
-        <p
-          className="border-l-2 pl-3 text-sm leading-relaxed text-[var(--text-secondary)]"
-          style={{ borderColor: TYPE_COLORS[insight.insight_type] }}
-        >
-          {explanation}
-        </p>
-      )}
 
       {insight.caveats.map((caveat) => (
         <p key={caveat} className="text-xs leading-relaxed text-[var(--text-muted)]">

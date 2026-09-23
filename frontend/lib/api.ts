@@ -151,34 +151,6 @@ export type InsightCollection = {
   insights: Insight[];
 };
 
-export type Explanation = {
-  insight_id: string;
-  text: string;
-};
-
-export type ExplanationCollection = {
-  dataset_id: string;
-  available: boolean;
-  reason: string | null;
-  summary: string | null;
-  explanations: Explanation[];
-};
-
-export type QuestionResponse = {
-  dataset_id: string;
-  question: string;
-  status: "answered" | "refused";
-  refusal: string | null;
-  plan: Record<string, unknown> | null;
-  insight: Insight | null;
-  chart: ChartSpec | null;
-  rows: Record<string, unknown>[];
-  result_truncated: boolean;
-  answer: string | null;
-  explained: boolean;
-  explanation_reason: string | null;
-};
-
 // ---------------------------------------------------------------------------
 // Recipes: the closed vocabulary the backend validates. Every one of these has a
 // counterpart in backend/app/recipes/models.py, and nothing here is a string the
@@ -442,21 +414,6 @@ export function fetchQuality(datasetId: string): Promise<QualityReport> {
 
 export function fetchInsights(datasetId: string): Promise<InsightCollection> {
   return request<InsightCollection>(`/api/datasets/${datasetId}/insights`);
-}
-
-export function fetchExplanations(datasetId: string): Promise<ExplanationCollection> {
-  return request<ExplanationCollection>(`/api/datasets/${datasetId}/explanations`);
-}
-
-export function askDataset(
-  datasetId: string,
-  question: string,
-  useAI: boolean,
-): Promise<QuestionResponse> {
-  return post<QuestionResponse>(`/api/datasets/${datasetId}/questions`, {
-    question,
-    use_ai: useAI,
-  });
 }
 
 export function previewRecipe(

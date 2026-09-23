@@ -9,7 +9,6 @@ from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.ai import insight_explainer
 from app.api import routes
 from app.config import Settings, settings
 from app.main import app
@@ -157,7 +156,7 @@ def test_expiration_is_fixed_and_descendants_share_root_deadline(retained):
         derive(store, child)
 
 
-@pytest.mark.parametrize("endpoint", ["profile", "preview", "analysis", "charts", "quality", "insights", "explanations", "lineage"])
+@pytest.mark.parametrize("endpoint", ["profile", "preview", "analysis", "charts", "quality", "insights", "lineage"])
 def test_expired_ids_receive_existing_not_found_response(retained, endpoint):
     store, now, client = retained
     root = add(store)
@@ -189,70 +188,6 @@ def test_removing_a_branch_keeps_ancestors_and_siblings(retained):
     assert store.get(grandchild.dataset_id) is None
     assert [item.dataset_id for item in store.lineage(sibling)] == [root.dataset_id, sibling.dataset_id]
     assert set(store._derived) == {sibling.dataset_id}
-
-
-def test_expiration_removes_explanation_cache_and_locks(retained):
-    store, now, _ = retained
-    root = add(store)
-    child = derive(store, root)
-    keys = [(root.dataset_id,), (child.dataset_id,)]
-    for key in keys:
-        insight_explainer._cache[key] = (None, [])
-        insight_explainer._lock_for(key)
-    now[0] += 10
-    store.expire()
-    assert all(key not in insight_explainer._cache for key in keys)
-    assert all(key not in insight_explainer._locks for key in keys)
-
-
-def test_expiration_removes_question_conversation(retained):
-    import app.question_state as question_state
-
-    store, now, _ = retained
-    root = add(store)
-    store.remember_question(root, {"question": "How many rows?"})
-    question_state.question_lock(root.dataset_id, "How many rows?")
-    assert store.conversation(root)
-    now[0] += 10
-    store.expire()
-    assert root.dataset_id not in store._conversations
-    assert not any(key[0] == root.dataset_id for key in question_state._locks)
-
-
-def test_model_response_cannot_restore_expired_cache(retained):
-    store, now, _ = retained
-    root = add(store)
-    score = check_dataset_quality(store.frame_of(root), root.profile).score
-
-    class ExpiringClient:
-        def complete(self, system, user):
-            now[0] += 10
-            store.expire()
-            return '{"summary": "A small dataset.", "explanations": {}}'
-
-    insight_explainer.explain_insights(root.profile, score, [], client=ExpiringClient())
-    assert (root.dataset_id,) not in insight_explainer._cache
-    assert (root.dataset_id,) not in insight_explainer._locks
-
-
-def test_late_explanation_request_returns_404_and_clears_cache(retained, monkeypatch):
-    store, now, client = retained
-    root = add(store)
-
-    class FakeClient:
-        def complete(self, system, user):
-            return '{"summary": "A small dataset.", "explanations": {}}'
-
-    def late_explanation(profile, score, insights):
-        now[0] += 10
-        store.expire()
-        return insight_explainer.explain_insights(profile, score, insights, client=FakeClient())
-
-    monkeypatch.setattr(routes, "explain_insights", late_explanation)
-    response = client.get(f"/api/datasets/{root.dataset_id}/explanations")
-    assert response.status_code == 404
-    assert not any(key[0] == root.dataset_id for key in insight_explainer._cache)
-    assert not any(key[0] == root.dataset_id for key in insight_explainer._locks)
 
 
 def test_rebuild_crossing_deadline_does_not_restore_derived_frame(retained, monkeypatch):
@@ -293,7 +228,7 @@ def test_concurrent_adds_cannot_exceed_capacity(retained, monkeypatch):
     "setting",
     [
         "max_upload_bytes", "max_datasets", "dataset_ttl_seconds",
-        "dashboard_cache_size", "question_max_turns",
+        "dashboard_cache_size",
     ],
 )
 @pytest.mark.parametrize("value", [0, -1])

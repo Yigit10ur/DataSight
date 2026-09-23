@@ -71,12 +71,8 @@ def test_normal_dashboard_load_computes_each_stage_once(monkeypatch):
     assert all(response.status_code == 200 for response in responses)
     assert counts == {"analysis": 1, "quality": 1, "charts": 1, "insights": 1}
 
-    # The compatibility endpoint and optional explanation request reuse the same
-    # deterministic result. With no key, the latter makes no model call.
+    # The compatibility endpoint reuses the same deterministic result.
     assert client.get(f"/api/datasets/{dataset_id}/analysis").status_code == 200
-    explained = client.get(f"/api/datasets/{dataset_id}/explanations")
-    assert explained.status_code == 200
-    assert explained.json()["available"] is False
     assert counts == {"analysis": 1, "quality": 1, "charts": 1, "insights": 1}
 
 

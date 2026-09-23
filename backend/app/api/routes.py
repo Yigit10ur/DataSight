@@ -5,8 +5,6 @@ import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.ai import ExplanationCollection, explain_insights
-from app.ai.insight_explainer import clear_dataset_cache
 from app.analysis import DatasetAnalysis
 from app.config import settings
 from app.dashboard import DashboardAnalysis, dashboard_cache
@@ -14,7 +12,6 @@ from app.ingestion import DatasetValidationError, load_dataset
 from app.insights import InsightCollection
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
 from app.quality import QualityReport
-from app.questions import QuestionRequest, QuestionResponse, ask_question
 from app.recipes import Recipe, RecipePreview, planned_columns, run_recipe
 from app.store import (
     DatasetLimit,
@@ -94,42 +91,10 @@ def get_insights(dataset_id: str) -> InsightCollection:
     return _dashboard(stored).insights
 
 
-@router.get("/datasets/{dataset_id}/explanations", response_model=ExplanationCollection)
-def get_explanations(dataset_id: str) -> ExplanationCollection:
-    """Plain-language readings of the findings, fetched separately.
-
-    The dashboard renders without this, so a slow or missing model never holds up
-    the numbers.
-    """
-    stored = _require_dataset(dataset_id)
-    dashboard = _dashboard(stored)
-    result = explain_insights(
-        stored.profile, dashboard.quality.score, dashboard.insights.insights
-    )
-    if dataset_store.get(dataset_id) is None:
-        # A request already computing findings may start its model call after a
-        # sweep. Do not retain that late answer for a deleted dataset either.
-        clear_dataset_cache(dataset_id)
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    return result
-
-
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)
 def get_quality(dataset_id: str) -> QualityReport:
     stored = _require_dataset(dataset_id)
     return _dashboard(stored).quality
-
-
-@router.post("/datasets/{dataset_id}/questions", response_model=QuestionResponse)
-def ask_dataset(dataset_id: str, request: QuestionRequest) -> QuestionResponse:
-    stored = _require_dataset(dataset_id)
-    frame = dataset_store.frame_of(stored)
-    result = ask_question(
-        dataset_store, stored, frame, request.question, request.use_ai
-    )
-    if dataset_store.get(dataset_id) is not stored:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    return result
 
 
 @router.post("/datasets/{dataset_id}/recipe/preview", response_model=RecipePreview)
