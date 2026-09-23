@@ -86,3 +86,40 @@ def test_insights_endpoint_returns_structured_findings():
 
 def test_insights_for_an_unknown_dataset_return_404():
     assert client.get("/api/datasets/does-not-exist/insights").status_code == 404
+
+
+def test_upload_parses_off_the_event_loop(monkeypatch):
+    """Parsing runs in a worker thread, so a large file cannot stall other requests."""
+    import asyncio
+
+    from app.api import routes
+
+    loaded = routes.load_dataset
+    loops = []
+
+    def load_and_check(*args):
+        try:
+            loops.append(asyncio.get_running_loop())
+        except RuntimeError:
+            loops.append(None)
+        return loaded(*args)
+
+    monkeypatch.setattr(routes, "load_dataset", load_and_check)
+    response = client.post("/api/upload", files={"file": ("people.csv", CSV, "text/csv")})
+
+    assert response.status_code == 200
+    assert loops == [None]
+
+
+def test_cors_does_not_grant_credentialed_access():
+    response = client.get("/api/health", headers={"Origin": "http://localhost:3000"})
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "access-control-allow-credentials" not in response.headers
+
+
+def test_api_docs_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("DATASIGHT_API_DOCS", "false")
+    from app.config import Settings
+
+    assert Settings().api_docs is False

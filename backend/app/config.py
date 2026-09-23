@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     dataset_ttl_seconds: float = Field(default=3600, gt=0, allow_inf_nan=False)
     max_datasets: int = Field(default=100, gt=0)
     dashboard_cache_size: int = Field(default=16, gt=0)
+    # Serves /docs, /redoc, and /openapi.json. Turn off where the API is public.
+    api_docs: bool = True
 
 
 settings = Settings()

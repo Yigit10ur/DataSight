@@ -27,7 +27,13 @@ async def lifespan(app: FastAPI):
             await task
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app = FastAPI(
+    title=settings.app_name,
+    lifespan=lifespan,
+    docs_url="/docs" if settings.api_docs else None,
+    redoc_url="/redoc" if settings.api_docs else None,
+    openapi_url="/openapi.json" if settings.api_docs else None,
+)
 
 
 @app.exception_handler(DatasetNotFound)
@@ -38,7 +44,8 @@ async def dataset_not_found(request: Request, error: DatasetNotFound) -> JSONRes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    # The API uses no cookies or auth headers, so browsers get no credentialed access.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

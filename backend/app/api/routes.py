@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
@@ -47,18 +48,22 @@ async def upload(file: UploadFile = File(...)) -> DatasetProfile:
                     detail=f"File exceeds the upload limit of {settings.max_upload_bytes} bytes.",
                 )
             content.extend(chunk)
-        frame = load_dataset(file.filename or "", content, settings.max_upload_bytes)
+        # Parsing and profiling are CPU-bound. Run on the event loop, one large file
+        # would stall every other request until it finished.
+        return await asyncio.to_thread(_store_upload, file.filename, content)
     except DatasetValidationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except DatasetLimit as limit:
+        raise HTTPException(status_code=409, detail=str(limit)) from limit
     finally:
         await file.close()
 
+
+def _store_upload(filename: str | None, content: bytearray) -> DatasetProfile:
+    frame = load_dataset(filename or "", content, settings.max_upload_bytes)
     dataset_id = dataset_store.new_id()
-    profile = profile_dataset(dataset_id, file.filename or "dataset", frame)
-    try:
-        dataset_store.add(dataset_id, profile.filename, frame, profile)
-    except DatasetLimit as limit:
-        raise HTTPException(status_code=409, detail=str(limit)) from limit
+    profile = profile_dataset(dataset_id, filename or "dataset", frame)
+    dataset_store.add(dataset_id, profile.filename, frame, profile)
     return profile
 
 

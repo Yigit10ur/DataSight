@@ -53,3 +53,10 @@ def test_rejects_file_over_size_limit():
 def test_rejects_header_only_file():
     with pytest.raises(DatasetValidationError, match="no data rows"):
         load_dataset("headers.csv", b"name,age\n", MAX_BYTES)
+
+
+def test_workbook_xml_is_parsed_with_defusedxml():
+    """openpyxl guards against XML entity attacks only when defusedxml is installed."""
+    from openpyxl.xml import DEFUSEDXML
+
+    assert DEFUSEDXML

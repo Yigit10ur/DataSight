@@ -8,6 +8,8 @@ numpy==2.2.1
 scipy==1.15.1
 scikit-learn==1.6.1
 openpyxl==3.1.5
+# openpyxl parses workbook XML safely only when defusedxml is installed.
+defusedxml==0.7.1
 plotly==5.24.1
 pytest==8.3.4
 httpx==0.28.1
