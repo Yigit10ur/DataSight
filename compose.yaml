@@ -1,0 +1,65 @@
+# Production stack: Caddy is the only service reachable from outside. It serves
+# HTTPS for DATASIGHT_DOMAIN, sends /api/* to the backend and everything else to
+# the frontend. Configure it in .env next to this file (see .env.example).
+
+services:
+  backend:
+    build: ./backend
+    environment:
+      DATASIGHT_CORS_ORIGINS: '["https://${DATASIGHT_DOMAIN:?set DATASIGHT_DOMAIN in .env}"]'
+      DATASIGHT_API_DOCS: "false"
+      DATASIGHT_MAX_UPLOAD_BYTES: ${DATASIGHT_MAX_UPLOAD_BYTES:-26214400}
+      DATASIGHT_MAX_DATASETS: ${DATASIGHT_MAX_DATASETS:-40}
+      DATASIGHT_DATASET_TTL_SECONDS: ${DATASIGHT_DATASET_TTL_SECONDS:-3600}
+    # Uploads are spooled to /tmp while they arrive; its size caps that disk use.
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    mem_limit: ${DATASIGHT_BACKEND_MEMORY:-2g}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    read_only: true
+    tmpfs:
+      - /app/.next/cache:uid=1000,gid=1000,size=64m
+    mem_limit: 512m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  caddy:
+    build:
+      context: ./deploy
+      dockerfile: Caddy.Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DATASIGHT_DOMAIN: ${DATASIGHT_DOMAIN}
+      DATASIGHT_USER: ${DATASIGHT_USER:?set DATASIGHT_USER in .env}
+      DATASIGHT_PASSWORD_HASH: ${DATASIGHT_PASSWORD_HASH:?set DATASIGHT_PASSWORD_HASH in .env}
+      # The upload limit plus room for the multipart envelope around the file.
+      DATASIGHT_PROXY_MAX_UPLOAD: ${DATASIGHT_PROXY_MAX_UPLOAD:-26MiB}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -198,6 +198,26 @@ environment variables are ignored.
 | `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend setting; configure in `frontend/.env.local`. |
 
+## Deploy
+
+[compose.yaml](compose.yaml) runs the production stack on any server with Docker:
+the backend and frontend images, and a [Caddy](https://caddyserver.com) proxy
+([deploy/Caddyfile](deploy/Caddyfile)) that is the only public entry point. Caddy
+obtains the HTTPS certificate automatically, puts the site behind one shared login,
+rate-limits requests, rejects oversized uploads before they reach the backend, and
+sets security headers. The site is served from one domain: `/api/*` goes to the
+backend and everything else to the frontend.
+
+1. Point the domain's DNS at the server and open ports 80 and 443.
+2. Copy [.env.example](.env.example) to `.env` and set the domain, a login name, and
+   a password hash from `docker run --rm caddy:2 caddy hash-password`.
+3. Run `docker compose up -d --build`.
+
+The backend runs as a single worker with a memory limit and restarts if it is
+killed. A restart loses every dataset held in memory. Size
+`DATASIGHT_MAX_UPLOAD_BYTES`, `DATASIGHT_MAX_DATASETS`, and `DATASIGHT_BACKEND_MEMORY`
+to the server's RAM.
+
 ## Development checks
 
 Run the backend tests from the repository root:

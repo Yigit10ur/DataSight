@@ -1,0 +1,79 @@
+{
+	# Rate limits apply before the login check, so password guessing is limited too.
+	order rate_limit before basic_auth
+
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 2m
+			write 3m
+			idle 2m
+		}
+	}
+}
+
+# Caddy obtains and renews the HTTPS certificate for this domain automatically.
+# The domain's DNS must point at this server, with ports 80 and 443 open.
+{$DATASIGHT_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Next.js injects inline scripts and Plotly injects inline styles.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# There are no user accounts, so the whole site sits behind one shared login.
+	# Generate the hash with: docker run --rm caddy:2 caddy hash-password
+	basic_auth {
+		{$DATASIGHT_USER} {$DATASIGHT_PASSWORD_HASH}
+	}
+
+	handle /api/upload {
+		rate_limit {
+			zone uploads {
+				key {remote_host}
+				events 10
+				window 1m
+			}
+		}
+		# Rejects oversized uploads here, before the backend spools them to disk.
+		request_body {
+			max_size {$DATASIGHT_PROXY_MAX_UPLOAD}
+		}
+		reverse_proxy backend:8000 {
+			transport http {
+				response_header_timeout 2m
+			}
+		}
+	}
+
+	handle /api/* {
+		rate_limit {
+			zone api {
+				key {remote_host}
+				events 300
+				window 1m
+			}
+		}
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy backend:8000 {
+			transport http {
+				response_header_timeout 2m
+			}
+		}
+	}
+
+	handle {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy frontend:3000
+	}
+}
