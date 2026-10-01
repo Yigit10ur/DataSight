@@ -416,14 +416,20 @@ export async function fetchAccount(): Promise<Account | null> {
   }
 }
 
-export type SignInOptions = { google: boolean };
+export type Provider = "google" | "github";
+
+export const PROVIDER_NAMES: Record<Provider, string> = { google: "Google", github: "GitHub" };
+
+export type SignInOptions = Record<Provider, boolean>;
 
 export function fetchSignInOptions(): Promise<SignInOptions> {
   return request<SignInOptions>("/api/auth/options");
 }
 
-/** A page, not a request: following it leaves for Google and comes back signed in. */
-export const GOOGLE_SIGN_IN_URL = `${API_URL}/api/auth/google/start`;
+/** A page, not a request: following it leaves for the provider and comes back signed in. */
+export function signInUrl(provider: Provider): string {
+  return `${API_URL}/api/auth/${provider}/start`;
+}
 
 export function signUp(username: string, password: string): Promise<Account> {
   return post<Account>("/api/auth/signup", { username, password });

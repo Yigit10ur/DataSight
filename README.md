@@ -14,9 +14,9 @@ Statistics, quality scores, findings, and chart data are all computed in Python.
 - **Recipe previews and export:** inspect intermediate results, run a focused analysis, save a derived dataset in the current session, or download the transformed rows as CSV.
 - **Dataset lineage:** follow a derived dataset back through the transformations that produced it.
 - **Example dataset:** a 60-row synthetic CSV in [example-data/](example-data/), with planted quality issues, so a fresh clone has something to upload.
-- **Accounts:** anyone can sign up with a username and password, or with a Google
-  account once it is [set up](#signing-in-with-google); each account sees only its own
-  datasets.
+- **Accounts:** anyone can sign up with a username and password, or with a Google or
+  GitHub account once [set up](#signing-in-with-google); each account sees only its
+  own datasets.
 - **Light and dark themes.**
 
 ## Run locally
@@ -209,6 +209,9 @@ environment variables are ignored.
 | `DATASIGHT_GOOGLE_CLIENT_ID` | empty | OAuth client ID for signing in with Google. Google is offered only when this and the secret are set. |
 | `DATASIGHT_GOOGLE_CLIENT_SECRET` | empty | That OAuth client's secret. |
 | `DATASIGHT_GOOGLE_REDIRECT_URI` | `http://localhost:8000/api/auth/google/callback` | Where Google returns the browser; must be listed in the OAuth client exactly. |
+| `DATASIGHT_GITHUB_CLIENT_ID` | empty | GitHub OAuth app's client ID. GitHub is offered only when this and the secret are set. |
+| `DATASIGHT_GITHUB_CLIENT_SECRET` | empty | That OAuth app's client secret. |
+| `DATASIGHT_GITHUB_REDIRECT_URI` | `http://localhost:8000/api/auth/github/callback` | Where GitHub returns the browser; must be the OAuth app's callback URL. |
 | `DATASIGHT_APP_URL` | `http://localhost:3000` | The frontend's address, where the browser lands after signing in with Google. |
 | `DATASIGHT_DASHBOARD_CACHE_SIZE` | `16` | Maximum datasets whose computed dashboard results are retained. Must be positive. |
 | `DATASIGHT_API_DOCS` | `true` | Serves the interactive API docs at `/docs`, `/redoc`, and `/openapi.json`. Set to `false` where the API is public. |
@@ -239,6 +242,29 @@ A Google account becomes a DataSight account on its first sign-in, named after t
 part of its address before the `@` (with a number added if that name is taken). It
 is matched on Google's ID for the account, not the address, and has no password.
 Accounts made with a password are not joined to Google ones.
+
+## Signing in with GitHub
+
+GitHub sign-in is off until it has an OAuth app, which you register once on GitHub:
+
+1. Open **Settings → Developer settings → OAuth Apps → New OAuth App** (or go to
+   <https://github.com/settings/applications/new>).
+2. **Application name:** `DataSight`. **Homepage URL:** `http://localhost:3000`.
+   **Authorization callback URL:** `http://localhost:8000/api/auth/github/callback`.
+   Leave **Enable Device Flow** off, and click **Register application**.
+3. Copy the **Client ID**, click **Generate a new client secret**, and copy the secret.
+4. Put both in `backend/.env` as `DATASIGHT_GITHUB_CLIENT_ID` and
+   `DATASIGHT_GITHUB_CLIENT_SECRET`, and restart the backend.
+
+An OAuth app has a single callback URL, so the deployment needs a second app whose
+callback URL is `https://<your domain>/api/auth/github/callback` and whose homepage
+is `https://<your domain>`, with its ID and secret in the deployment's `.env`.
+
+No permissions are requested: DataSight reads only the public profile. A GitHub
+account becomes a DataSight account on its first sign-in, named after its GitHub
+username, and is matched on GitHub's permanent ID for it, so renaming on GitHub
+keeps the same DataSight account. Accounts from Google, GitHub, and passwords are
+never joined to one another.
 
 ## Deploy
 

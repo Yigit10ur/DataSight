@@ -8,8 +8,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
-from app.accounts import AccountStore, google
-from app.api.auth import GOOGLE_STATE_COOKIE, SESSION_COOKIE
+from app.accounts import AccountStore, SignInError, google
+from app.api.auth import SESSION_COOKIE, state_cookie
 from app.config import settings
 from app.main import app
 
@@ -65,19 +65,19 @@ def come_back(client: TestClient, **query):
 
 def test_google_is_not_offered_until_configured():
     client = TestClient(app)
-    assert client.get("/api/auth/options").json() == {"google": False}
+    assert client.get("/api/auth/options").json() == {"google": False, "github": False}
     assert client.get("/api/auth/google/start", follow_redirects=False).status_code == 404
 
 
 def test_starting_sends_the_browser_to_google_with_one_time_values(configured):
     client = TestClient(app)
-    assert client.get("/api/auth/options").json() == {"google": True}
+    assert client.get("/api/auth/options").json() == {"google": True, "github": False}
     query = leave_for_google(client)
     assert query["client_id"] == CLIENT_ID
     assert query["redirect_uri"] == settings.google_redirect_uri
     assert query["scope"] == "openid email"
     assert query["code_challenge_method"] == "S256"
-    assert client.cookies[GOOGLE_STATE_COOKIE] == query["state"]
+    assert client.cookies[state_cookie("google")] == query["state"]
     assert leave_for_google(client)["state"] != query["state"]
 
 
@@ -134,7 +134,7 @@ def test_a_state_from_another_browser_is_refused(configured, monkeypatch):
     attacker_state = leave_for_google(attacker)["state"]
     leave_for_google(victim)
     response = come_back(victim, code="attackers-code", state=attacker_state)
-    assert response.headers["location"] == "http://localhost:3000/?signin=failed"
+    assert response.headers["location"] == "http://localhost:3000/?signin=failed&with=google"
     assert victim.get("/api/auth/me").status_code == 401
     assert exchanged == []
 
@@ -144,16 +144,16 @@ def test_a_callback_cannot_be_replayed(configured, monkeypatch):
     client = TestClient(app)
     state = leave_for_google(client)["state"]
     assert come_back(client, code="c", state=state).headers["location"].endswith("/")
-    client.cookies.set(GOOGLE_STATE_COOKIE, state, path="/api/auth/google")
+    client.cookies.set(state_cookie("google"), state, path="/api/auth/google")
     replay = come_back(client, code="c", state=state)
-    assert replay.headers["location"].endswith("?signin=failed")
+    assert replay.headers["location"].endswith("?signin=failed&with=google")
 
 
 def test_cancelling_at_google_says_so(configured):
     client = TestClient(app)
     leave_for_google(client)
     response = come_back(client, error="access_denied")
-    assert response.headers["location"] == "http://localhost:3000/?signin=cancelled"
+    assert response.headers["location"] == "http://localhost:3000/?signin=cancelled&with=google"
 
 
 @pytest.mark.parametrize(
@@ -170,47 +170,49 @@ def test_an_untrustworthy_token_does_not_sign_in(configured, monkeypatch, claims
     google_answers(monkeypatch, **claims)
     client = TestClient(app)
     response = come_back(client, code="c", state=leave_for_google(client)["state"])
-    assert response.headers["location"].endswith("?signin=failed")
+    assert response.headers["location"].endswith("?signin=failed&with=google")
     assert client.get("/api/auth/me").status_code == 401
 
 
 def test_a_failed_exchange_does_not_sign_in(configured, monkeypatch):
     def broken(*args):
-        raise google.GoogleSignInError("Google is down")
+        raise SignInError("Google is down")
 
     monkeypatch.setattr(google, "exchange_code", broken)
     client = TestClient(app)
     response = come_back(client, code="c", state=leave_for_google(client)["state"])
-    assert response.headers["location"].endswith("?signin=failed")
+    assert response.headers["location"].endswith("?signin=failed&with=google")
 
 
 def test_a_sign_in_left_too_long_expires(tmp_path):
     now = [1000.0]
     store = AccountStore(lambda: tmp_path / "a.db", lambda: 60, clock=lambda: now[0])
-    store.begin_sign_in("state", "verifier", "nonce")
+    store.begin_sign_in("google", "state", "verifier", "nonce")
     now[0] += 601
-    assert store.finish_sign_in("state") is None
+    assert store.finish_sign_in("google", "state") is None
 
 
 @pytest.mark.parametrize(
-    "email,username",
-    [("ada@gmail.com", "ada"), ("a@gmail.com", "user-a"), ("+++@gmail.com", "user"),
-     ("x" * 40 + "@gmail.com", "x" * 28)],
+    "hint,username",
+    [("ada", "ada"), ("a", "user-a"), ("+++", "user"), ("x" * 40, "x" * 28),
+     ("Ada-Lovelace", "Ada-Lovelace")],
 )
-def test_usernames_from_addresses_follow_the_rules(email, username):
-    from app.accounts.store import USERNAME, google_username
+def test_usernames_from_providers_follow_the_rules(hint, username):
+    from app.accounts.store import USERNAME, username_from
 
-    assert google_username(email) == username
+    assert username_from(hint) == username
     assert USERNAME.fullmatch(username)
 
 
-def test_a_database_from_before_google_sign_in_is_upgraded(tmp_path):
+def test_a_database_from_before_outside_sign_ins_gains_them(tmp_path):
     path = tmp_path / "old.db"
-    AccountStore(lambda: path, lambda: 60).sign_up("grace", "an old password")
     with sqlite3.connect(path) as connection:
-        connection.execute("DROP INDEX users_by_google")
-        connection.execute("ALTER TABLE users DROP COLUMN google_sub")
+        connection.executescript(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE "
+            "COLLATE NOCASE, password_hash TEXT NOT NULL, created_at REAL NOT NULL);"
+        )
+    AccountStore(lambda: path, lambda: 60).sign_up("grace", "an old password")
 
     store = AccountStore(lambda: path, lambda: 60)
     assert store.log_in("grace", "an old password").username == "grace"
-    assert store.account_for_google("g-1", "grace@gmail.com").username == "grace-2"
+    assert store.account_for_identity("google", "g-1", "grace").username == "grace-2"

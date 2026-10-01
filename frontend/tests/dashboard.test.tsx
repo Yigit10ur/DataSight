@@ -151,7 +151,7 @@ test("adds a recipe step, previews its rows, and restores the original rows on r
   expect(screen.getByRole("button", { name: "Save as a dataset" })).toBeDisabled();
 });
 
-function signedOut(offersGoogle = false) {
+function signedOut(offersGoogle = false, offersGitHub = false) {
   const handler = vi.mocked(fetch).getMockImplementation()!;
   vi.mocked(fetch).mockImplementation((input, init) => {
     const path = new URL(String(input)).pathname;
@@ -161,7 +161,7 @@ function signedOut(offersGoogle = false) {
     }
     if (path === "/api/auth/options") {
       requests.push({ path, init });
-      return Promise.resolve(json({ google: offersGoogle }));
+      return Promise.resolve(json({ google: offersGoogle, github: offersGitHub }));
     }
     if (path === "/api/auth/login" || path === "/api/auth/signup") {
       requests.push({ path, init });
@@ -248,9 +248,27 @@ test("does not offer Google when the server is not set up for it", async () => {
 });
 
 test("says why a Google sign-in came back without signing in, once", async () => {
-  window.history.replaceState(null, "", "/?signin=cancelled");
+  window.history.replaceState(null, "", "/?signin=cancelled&with=google");
   signedOut(true);
   render(<Home />);
   expect(await screen.findByText("Signing in with Google was cancelled.")).toBeVisible();
+  expect(window.location.search).toBe("");
+});
+
+test("offers GitHub beside Google, each only when set up", async () => {
+  signedOut(false, true);
+  render(<Home />);
+  const github = await screen.findByRole("link", { name: "Continue with GitHub" });
+  expect(github).toHaveAttribute("href", expect.stringMatching(/\/api\/auth\/github\/start$/));
+  expect(screen.queryByRole("link", { name: "Continue with Google" })).not.toBeInTheDocument();
+});
+
+test("names the provider a sign-in failed with", async () => {
+  window.history.replaceState(null, "", "/?signin=failed&with=github");
+  signedOut(false, true);
+  render(<Home />);
+  expect(
+    await screen.findByText("Signing in with GitHub did not work. Try again, or use a password."),
+  ).toBeVisible();
   expect(window.location.search).toBe("");
 });

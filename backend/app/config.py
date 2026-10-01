@@ -49,7 +49,12 @@ class Settings(BaseSettings):
     # Where Google sends the browser back to. It must be listed, exactly, among the
     # OAuth client's authorized redirect URIs.
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
-    # Where the browser goes once signed in: the page the frontend serves.
+    # Signing in with GitHub, from an OAuth app in GitHub's developer settings. The
+    # app's authorization callback URL must be the redirect URI below.
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    github_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
+    # Where the browser goes once signed in with either: the page the frontend serves.
     app_url: str = "http://localhost:3000"
     # Serves /docs, /redoc, and /openapi.json. Turn off where the API is public.
     api_docs: bool = True

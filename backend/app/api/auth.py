@@ -1,18 +1,24 @@
 import secrets
+from dataclasses import dataclass
+from types import ModuleType
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from app.accounts import Account, AccountError, UsernameTaken, account_store, google
+from app.accounts import (
+    Account,
+    AccountError,
+    SignInError,
+    UsernameTaken,
+    account_store,
+    github,
+    google,
+)
 from app.config import settings
 
 SESSION_COOKIE = "datasight_session"
-# Holds the state of a Google sign-in between leaving for Google and coming back,
-# which ties the answer to the browser that asked for it.
-GOOGLE_STATE_COOKIE = "datasight_google_state"
-GOOGLE_PATHS = "/api/auth/google"
 
 router = APIRouter()
 
@@ -30,6 +36,40 @@ class Me(BaseModel):
 
 class Options(BaseModel):
     google: bool
+    github: bool
+
+
+@dataclass(frozen=True)
+class Provider:
+    name: str
+    # The module that speaks to it, with begin() and finish().
+    flow: ModuleType
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+
+
+def provider(name: str) -> Provider | None:
+    """A provider that can be signed in with, or None if unknown or not set up."""
+    if name == "google":
+        found = Provider(
+            "google", google, settings.google_client_id, settings.google_client_secret,
+            settings.google_redirect_uri,
+        )
+    elif name == "github":
+        found = Provider(
+            "github", github, settings.github_client_id, settings.github_client_secret,
+            settings.github_redirect_uri,
+        )
+    else:
+        return None
+    return found if found.client_id and found.client_secret else None
+
+
+def state_cookie(name: str) -> str:
+    """Holds a sign-in's state between leaving for the provider and coming back,
+    which ties the answer to the browser that asked for it."""
+    return f"datasight_{name}_state"
 
 
 def current_account(
@@ -77,65 +117,73 @@ def log_out(
 
 @router.get("/options", response_model=Options)
 def options() -> Options:
-    """Which ways of signing in this server offers."""
-    return Options(google=_google_configured())
+    """Which ways of signing in this server offers, besides a username and password."""
+    return Options(google=provider("google") is not None, github=provider("github") is not None)
 
 
-@router.get("/google/start")
-def google_start() -> RedirectResponse:
-    if not _google_configured():
-        raise HTTPException(status_code=404, detail="Signing in with Google is not set up.")
-    start = google.begin(settings.google_client_id, settings.google_redirect_uri)
-    account_store.begin_sign_in(start.state, start.verifier, start.nonce)
+@router.get("/{name}/start")
+def external_start(name: str) -> RedirectResponse:
+    """Send the browser to Google or GitHub to sign in."""
+    found = provider(name)
+    if found is None:
+        raise HTTPException(status_code=404, detail="That way of signing in is not set up.")
+    start = found.flow.begin(found.client_id, found.redirect_uri)
+    account_store.begin_sign_in(found.name, start.state, start.verifier, start.nonce)
     response = RedirectResponse(start.url, status_code=302)
     response.set_cookie(
-        GOOGLE_STATE_COOKIE,
+        state_cookie(found.name),
         start.state,
         max_age=600,
-        path=GOOGLE_PATHS,
+        path=f"/api/auth/{found.name}",
         secure=settings.secure_cookies,
         httponly=True,
-        # Lax still sends it on Google's redirect back, a top-level navigation.
+        # Lax still sends it on the provider's redirect back, a top-level navigation.
         samesite="lax",
     )
     return response
 
 
-@router.get("/google/callback")
-def google_callback(
+@router.get("/{name}/callback")
+def external_callback(
+    name: str,
+    request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
-    expected_state: str | None = Cookie(default=None, alias=GOOGLE_STATE_COOKIE),
 ) -> RedirectResponse:
-    """Finish a Google sign-in and send the browser back to the app, signed in or not.
+    """Finish signing in and send the browser back to the app, signed in or not.
 
     Whatever goes wrong, the reader lands on the app with a short reason in the
     address, never on a page of JSON from the API.
     """
+    found = provider(name)
+    if found is None:
+        return _back_to_app(None, "failed")
     if error == "access_denied":
-        return _back_to_app("cancelled")
-    if not (_google_configured() and code and state and expected_state):
-        return _back_to_app("failed")
-    # The state must be the one this browser was given, and still be on record.
+        return _back_to_app(found.name, "cancelled")
+    expected_state = request.cookies.get(state_cookie(found.name))
+    if not (code and state and expected_state):
+        return _back_to_app(found.name, "failed")
+    # The state must be the one this browser was given, and still be on record
+    # for this same provider.
     if not secrets.compare_digest(state, expected_state):
-        return _back_to_app("failed")
-    attempt = account_store.finish_sign_in(state)
+        return _back_to_app(found.name, "failed")
+    attempt = account_store.finish_sign_in(found.name, state)
     if attempt is None:
-        return _back_to_app("failed")
+        return _back_to_app(found.name, "failed")
     verifier, nonce = attempt
 
     try:
-        token = google.exchange_code(
-            code, verifier, settings.google_client_id, settings.google_client_secret,
-            settings.google_redirect_uri,
+        identity = found.flow.finish(
+            code, verifier, nonce, found.client_id, found.client_secret, found.redirect_uri
         )
-        identity = google.read_identity(token, settings.google_client_id, nonce)
-        account = account_store.account_for_google(identity.subject, identity.email)
-    except (google.GoogleSignInError, AccountError):
-        return _back_to_app("failed")
+        account = account_store.account_for_identity(
+            found.name, identity.subject, identity.name_hint
+        )
+    except (SignInError, AccountError):
+        return _back_to_app(found.name, "failed")
 
-    response = _back_to_app(None)
+    response = _back_to_app(found.name, None)
     _start_session(response, account)
     return response
 
@@ -145,17 +193,16 @@ def me(account: Account = Depends(current_account)) -> Me:
     return Me(username=account.username)
 
 
-def _google_configured() -> bool:
-    return bool(settings.google_client_id and settings.google_client_secret)
-
-
-def _back_to_app(problem: str | None) -> RedirectResponse:
-    url = settings.app_url + (f"/?{urlencode({'signin': problem})}" if problem else "/")
+def _back_to_app(name: str | None, problem: str | None) -> RedirectResponse:
+    """The app's page, with what went wrong and with which provider, if anything did."""
+    query = {"signin": problem, **({"with": name} if name else {})}
+    url = settings.app_url + (f"/?{urlencode(query)}" if problem else "/")
     response = RedirectResponse(url, status_code=302)
-    response.delete_cookie(
-        GOOGLE_STATE_COOKIE, path=GOOGLE_PATHS, secure=settings.secure_cookies,
-        httponly=True, samesite="lax",
-    )
+    if name:
+        response.delete_cookie(
+            state_cookie(name), path=f"/api/auth/{name}", secure=settings.secure_cookies,
+            httponly=True, samesite="lax",
+        )
     return response
 
 

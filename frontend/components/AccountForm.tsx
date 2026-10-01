@@ -3,27 +3,32 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
-  GOOGLE_SIGN_IN_URL,
+  PROVIDER_NAMES,
   fetchSignInOptions,
   logIn,
+  signInUrl,
   signUp,
   type Account,
+  type Provider,
 } from "@/lib/api";
 
 type Props = {
   onSignedIn: (account: Account) => void;
 };
 
-// What the API puts in the address when a Google sign-in comes back without one.
-const GOOGLE_PROBLEMS: Record<string, string> = {
-  cancelled: "Signing in with Google was cancelled.",
-  failed: "Signing in with Google did not work. Try again, or use a password.",
-};
-
-function googleProblem(): string | null {
+/**
+ * Why a sign-in at Google or GitHub came back without signing in. The API puts it
+ * in the address: ?signin=cancelled|failed&with=google|github.
+ */
+function signInProblem(): string | null {
   if (typeof window === "undefined") return null;
-  const problem = new URLSearchParams(window.location.search).get("signin");
-  return problem ? (GOOGLE_PROBLEMS[problem] ?? GOOGLE_PROBLEMS.failed) : null;
+  const query = new URLSearchParams(window.location.search);
+  const problem = query.get("signin");
+  if (!problem) return null;
+  const name = PROVIDER_NAMES[query.get("with") as Provider] ?? "that account";
+  return problem === "cancelled"
+    ? `Signing in with ${name} was cancelled.`
+    : `Signing in with ${name} did not work. Try again, or use a password.`;
 }
 
 const INPUT_CLASS =
@@ -34,20 +39,22 @@ export function AccountForm({ onSignedIn }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isBusy, setIsBusy] = useState(false);
-  // A Google sign-in that came back without signing in says why in the address.
-  const [error, setError] = useState<string | null>(googleProblem);
-  const [offersGoogle, setOffersGoogle] = useState(false);
+  const [error, setError] = useState<string | null>(signInProblem);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const isSignUp = mode === "signup";
 
   useEffect(() => {
     fetchSignInOptions()
-      .then((options) => setOffersGoogle(options.google))
-      .catch(() => setOffersGoogle(false));
+      .then((options) =>
+        setProviders((Object.keys(PROVIDER_NAMES) as Provider[]).filter((name) => options[name])),
+      )
+      .catch(() => setProviders([]));
 
     // Said once: a reload should not repeat it.
     const address = new URL(window.location.href);
     if (address.searchParams.has("signin")) {
       address.searchParams.delete("signin");
+      address.searchParams.delete("with");
       window.history.replaceState(null, "", address);
     }
   }, []);
@@ -73,14 +80,19 @@ export function AccountForm({ onSignedIn }: Props) {
           : "Log in to upload and explore your datasets."}
       </p>
 
-      {offersGoogle && (
+      {providers.length > 0 && (
         <>
-          <a
-            href={GOOGLE_SIGN_IN_URL}
-            className="mt-5 flex w-full items-center justify-center rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
-          >
-            Continue with Google
-          </a>
+          <div className="mt-5 flex flex-col gap-2">
+            {providers.map((name) => (
+              <a
+                key={name}
+                href={signInUrl(name)}
+                className="flex w-full items-center justify-center rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
+              >
+                Continue with {PROVIDER_NAMES[name]}
+              </a>
+            ))}
+          </div>
           <div className="mt-5 flex items-center gap-3 text-xs text-[var(--text-muted)]">
             <span className="h-px flex-1 bg-[var(--border)]" />
             or with a username
