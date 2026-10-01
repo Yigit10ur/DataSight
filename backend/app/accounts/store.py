@@ -30,7 +30,16 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS sign_in_attempts (
+    state_hash TEXT PRIMARY KEY,
+    verifier TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
+
+# How long someone has to finish signing in at Google once they have left for it.
+SIGN_IN_ATTEMPT_SECONDS = 600
 
 
 class AccountError(Exception):
@@ -129,6 +138,68 @@ class AccountStore:
     def purge_expired_sessions(self) -> None:
         with self._connection() as connection:
             connection.execute("DELETE FROM sessions WHERE expires_at <= ?", (self._clock(),))
+            connection.execute(
+                "DELETE FROM sign_in_attempts WHERE expires_at <= ?", (self._clock(),)
+            )
+
+    def begin_sign_in(self, state: str, verifier: str, nonce: str) -> None:
+        """Remember a Google sign-in in progress until its callback arrives."""
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT INTO sign_in_attempts (state_hash, verifier, nonce, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (_digest(state), verifier, nonce, self._clock() + SIGN_IN_ATTEMPT_SECONDS),
+            )
+
+    def finish_sign_in(self, state: str) -> tuple[str, str] | None:
+        """The verifier and nonce for a sign-in, usable once and only before it expires."""
+        with self._connection() as connection:
+            row = connection.execute(
+                "DELETE FROM sign_in_attempts WHERE state_hash = ? RETURNING verifier, nonce, "
+                "expires_at",
+                (_digest(state),),
+            ).fetchone()
+        if row is None or row["expires_at"] <= self._clock():
+            return None
+        return row["verifier"], row["nonce"]
+
+    def account_for_google(self, subject: str, email: str) -> Account:
+        """The account for this Google identity, created on its first sign-in.
+
+        A Google identity is matched by Google's own ID for it, never by email: an
+        address can change hands, and a password account has no address to match.
+        Its username comes from the address and gets a number if already taken.
+        """
+        existing = self._google_account(subject)
+        if existing is not None:
+            return existing
+        base = google_username(email)
+        for attempt in range(1, 100):
+            username = base if attempt == 1 else f"{base}-{attempt}"
+            account = Account(id=uuid.uuid4().hex, username=username)
+            try:
+                with self._connection() as connection:
+                    # No password: password_hash is empty, which no password matches.
+                    connection.execute(
+                        "INSERT INTO users (id, username, password_hash, created_at, google_sub) "
+                        "VALUES (?, ?, '', ?, ?)",
+                        (account.id, username, self._clock(), subject),
+                    )
+                return account
+            except sqlite3.IntegrityError:
+                # Either the name is taken, or this same identity signed in twice at
+                # once and the other attempt created the account first.
+                existing = self._google_account(subject)
+                if existing is not None:
+                    return existing
+        raise AccountError("No username could be found for this Google account.")
+
+    def _google_account(self, subject: str) -> Account | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT id, username FROM users WHERE google_sub = ?", (subject,)
+            ).fetchone()
+        return Account(id=row["id"], username=row["username"]) if row else None
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -145,7 +216,21 @@ class AccountStore:
         with self._schema_lock:
             if path not in self._ready:
                 connection.executescript(SCHEMA)
+                # Added after the first release: a database made before it gains the
+                # column here rather than needing to be recreated.
+                columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)")}
+                if "google_sub" not in columns:
+                    connection.execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
+                connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS users_by_google ON users(google_sub)"
+                )
                 self._ready.add(path)
+
+
+def google_username(email: str) -> str:
+    """A username from the part of an address before the @, made to fit the rules."""
+    name = re.sub(r"[^A-Za-z0-9_.-]", "", email.split("@")[0])[:28]
+    return name if len(name) >= 3 else f"user-{name}" if name else "user"
 
 
 def _digest(token: str) -> str:

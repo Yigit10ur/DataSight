@@ -416,6 +416,15 @@ export async function fetchAccount(): Promise<Account | null> {
   }
 }
 
+export type SignInOptions = { google: boolean };
+
+export function fetchSignInOptions(): Promise<SignInOptions> {
+  return request<SignInOptions>("/api/auth/options");
+}
+
+/** A page, not a request: following it leaves for Google and comes back signed in. */
+export const GOOGLE_SIGN_IN_URL = `${API_URL}/api/auth/google/start`;
+
 export function signUp(username: string, password: string): Promise<Account> {
   return post<Account>("/api/auth/signup", { username, password });
 }

@@ -94,10 +94,12 @@ def test_neither_passwords_nor_session_tokens_are_stored_as_given():
     client = signed_up("ada")
     token = client.cookies[SESSION_COOKIE]
     with sqlite3.connect(settings.database_path) as connection:
-        stored = [str(value) for row in connection.execute(
-            "SELECT * FROM users UNION ALL SELECT token_hash, user_id, expires_at, NULL "
-            "FROM sessions"
-        ) for value in row]
+        stored = [
+            str(value)
+            for table in ("users", "sessions")
+            for row in connection.execute(f"SELECT * FROM {table}")
+            for value in row
+        ]
     assert not any(PASSWORD in value or token in value for value in stored)
 
 

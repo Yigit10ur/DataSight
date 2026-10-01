@@ -151,13 +151,17 @@ test("adds a recipe step, previews its rows, and restores the original rows on r
   expect(screen.getByRole("button", { name: "Save as a dataset" })).toBeDisabled();
 });
 
-function signedOut() {
+function signedOut(offersGoogle = false) {
   const handler = vi.mocked(fetch).getMockImplementation()!;
   vi.mocked(fetch).mockImplementation((input, init) => {
     const path = new URL(String(input)).pathname;
     if (path === "/api/auth/me") {
       requests.push({ path, init });
       return Promise.resolve(json({ detail: "Log in to continue." }, 401));
+    }
+    if (path === "/api/auth/options") {
+      requests.push({ path, init });
+      return Promise.resolve(json({ google: offersGoogle }));
     }
     if (path === "/api/auth/login" || path === "/api/auth/signup") {
       requests.push({ path, init });
@@ -226,4 +230,27 @@ test("a session that ends mid-work goes back to logging in", async () => {
   ));
   expect(await screen.findByLabelText("Username")).toBeInTheDocument();
   expect(screen.queryByLabelText("Upload dataset")).not.toBeInTheDocument();
+});
+
+test("offers Google only when the server is set up for it", async () => {
+  signedOut(true);
+  render(<Home />);
+  const google = await screen.findByRole("link", { name: "Continue with Google" });
+  expect(google).toHaveAttribute("href", expect.stringMatching(/\/api\/auth\/google\/start$/));
+});
+
+test("does not offer Google when the server is not set up for it", async () => {
+  signedOut(false);
+  render(<Home />);
+  await screen.findByLabelText("Username");
+  await waitFor(() => expect(requests.some(({ path }) => path === "/api/auth/options")).toBe(true));
+  expect(screen.queryByRole("link", { name: "Continue with Google" })).not.toBeInTheDocument();
+});
+
+test("says why a Google sign-in came back without signing in, once", async () => {
+  window.history.replaceState(null, "", "/?signin=cancelled");
+  signedOut(true);
+  render(<Home />);
+  expect(await screen.findByText("Signing in with Google was cancelled.")).toBeVisible();
+  expect(window.location.search).toBe("");
 });

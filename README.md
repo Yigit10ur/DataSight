@@ -14,8 +14,9 @@ Statistics, quality scores, findings, and chart data are all computed in Python.
 - **Recipe previews and export:** inspect intermediate results, run a focused analysis, save a derived dataset in the current session, or download the transformed rows as CSV.
 - **Dataset lineage:** follow a derived dataset back through the transformations that produced it.
 - **Example dataset:** a 60-row synthetic CSV in [example-data/](example-data/), with planted quality issues, so a fresh clone has something to upload.
-- **Accounts:** anyone can sign up with a username and password; each account sees
-  only its own datasets.
+- **Accounts:** anyone can sign up with a username and password, or with a Google
+  account once it is [set up](#signing-in-with-google); each account sees only its own
+  datasets.
 - **Light and dark themes.**
 
 ## Run locally
@@ -205,10 +206,39 @@ environment variables are ignored.
 | `DATASIGHT_DATABASE_PATH` | `backend/datasight.db` | SQLite file holding accounts and sessions. Created on first use. |
 | `DATASIGHT_SESSION_TTL_SECONDS` | `604800` | How long a log-in lasts, in seconds (7 days). |
 | `DATASIGHT_SECURE_COOKIES` | `false` | Sends the session cookie over HTTPS only. Leave off for local http; the deployment turns it on. |
+| `DATASIGHT_GOOGLE_CLIENT_ID` | empty | OAuth client ID for signing in with Google. Google is offered only when this and the secret are set. |
+| `DATASIGHT_GOOGLE_CLIENT_SECRET` | empty | That OAuth client's secret. |
+| `DATASIGHT_GOOGLE_REDIRECT_URI` | `http://localhost:8000/api/auth/google/callback` | Where Google returns the browser; must be listed in the OAuth client exactly. |
+| `DATASIGHT_APP_URL` | `http://localhost:3000` | The frontend's address, where the browser lands after signing in with Google. |
 | `DATASIGHT_DASHBOARD_CACHE_SIZE` | `16` | Maximum datasets whose computed dashboard results are retained. Must be positive. |
 | `DATASIGHT_API_DOCS` | `true` | Serves the interactive API docs at `/docs`, `/redoc`, and `/openapi.json`. Set to `false` where the API is public. |
 | `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. They receive credentialed access, and writes from any other origin are refused. |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend setting; configure in `frontend/.env.local`. |
+
+## Signing in with Google
+
+Google sign-in is off until it has an OAuth client, which you create once in
+[Google Cloud](https://console.cloud.google.com):
+
+1. Create or pick a project. Under **APIs & Services → OAuth consent screen**, set it up
+   as **External**, with an app name and your email. The only scopes used are
+   `openid` and `email`, which need no review by Google.
+2. Under **APIs & Services → Credentials**, choose **Create credentials → OAuth client
+   ID**, of type **Web application**.
+3. Add the authorized redirect URIs: `http://localhost:8000/api/auth/google/callback`
+   for local development, and `https://<your domain>/api/auth/google/callback` for the
+   deployment.
+4. Put the client ID and secret in `backend/.env` locally, or in the deployment's
+   `.env`, as `DATASIGHT_GOOGLE_CLIENT_ID` and `DATASIGHT_GOOGLE_CLIENT_SECRET`, and
+   restart the backend.
+
+While the consent screen is in **Testing**, only the Google accounts listed as its
+test users can sign in; publish it to open sign-in to every Google account.
+
+A Google account becomes a DataSight account on its first sign-in, named after the
+part of its address before the `@` (with a number added if that name is taken). It
+is matched on Google's ID for the account, not the address, and has no password.
+Accounts made with a password are not joined to Google ones.
 
 ## Deploy
 

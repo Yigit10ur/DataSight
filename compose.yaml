@@ -17,6 +17,11 @@ services:
       DATASIGHT_CORS_ORIGINS: '["https://${DATASIGHT_DOMAIN:?set DATASIGHT_DOMAIN in .env}"]'
       DATASIGHT_API_DOCS: "false"
       DATASIGHT_SECURE_COOKIES: "true"
+      # Signing in with Google, offered only when both are set in .env.
+      DATASIGHT_GOOGLE_CLIENT_ID: ${DATASIGHT_GOOGLE_CLIENT_ID:-}
+      DATASIGHT_GOOGLE_CLIENT_SECRET: ${DATASIGHT_GOOGLE_CLIENT_SECRET:-}
+      DATASIGHT_GOOGLE_REDIRECT_URI: https://${DATASIGHT_DOMAIN}/api/auth/google/callback
+      DATASIGHT_APP_URL: https://${DATASIGHT_DOMAIN}
       DATASIGHT_MAX_UPLOAD_BYTES: ${DATASIGHT_MAX_UPLOAD_BYTES:-26214400}
       DATASIGHT_MAX_DATASETS: ${DATASIGHT_MAX_DATASETS:-40}
       # Kept datasets plus the jobs in flight must fit DATASIGHT_BACKEND_MEMORY. With

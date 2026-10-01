@@ -30,10 +30,10 @@
 	}
 
 	# Sign-up and log-in are where passwords are guessed and accounts mass-created,
-	# so they get a far tighter limit than the rest of the API. /api/auth/me is
-	# asked on every page load and stays out of it.
+	# so they get a far tighter limit than the rest of the API, as does each Google
+	# sign-in. /api/auth/me is asked on every page load and stays out of it.
 	handle /api/auth/* {
-		@credentials path /api/auth/login /api/auth/signup
+		@credentials path /api/auth/login /api/auth/signup /api/auth/google/*
 		rate_limit @credentials {
 			zone accounts {
 				key {remote_host}

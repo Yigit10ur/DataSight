@@ -1,12 +1,30 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
-import { logIn, signUp, type Account } from "@/lib/api";
+import {
+  GOOGLE_SIGN_IN_URL,
+  fetchSignInOptions,
+  logIn,
+  signUp,
+  type Account,
+} from "@/lib/api";
 
 type Props = {
   onSignedIn: (account: Account) => void;
 };
+
+// What the API puts in the address when a Google sign-in comes back without one.
+const GOOGLE_PROBLEMS: Record<string, string> = {
+  cancelled: "Signing in with Google was cancelled.",
+  failed: "Signing in with Google did not work. Try again, or use a password.",
+};
+
+function googleProblem(): string | null {
+  if (typeof window === "undefined") return null;
+  const problem = new URLSearchParams(window.location.search).get("signin");
+  return problem ? (GOOGLE_PROBLEMS[problem] ?? GOOGLE_PROBLEMS.failed) : null;
+}
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm";
@@ -16,8 +34,23 @@ export function AccountForm({ onSignedIn }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isBusy, setIsBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // A Google sign-in that came back without signing in says why in the address.
+  const [error, setError] = useState<string | null>(googleProblem);
+  const [offersGoogle, setOffersGoogle] = useState(false);
   const isSignUp = mode === "signup";
+
+  useEffect(() => {
+    fetchSignInOptions()
+      .then((options) => setOffersGoogle(options.google))
+      .catch(() => setOffersGoogle(false));
+
+    // Said once: a reload should not repeat it.
+    const address = new URL(window.location.href);
+    if (address.searchParams.has("signin")) {
+      address.searchParams.delete("signin");
+      window.history.replaceState(null, "", address);
+    }
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +72,22 @@ export function AccountForm({ onSignedIn }: Props) {
           ? "Your datasets are yours alone: nobody else signed in can see them."
           : "Log in to upload and explore your datasets."}
       </p>
+
+      {offersGoogle && (
+        <>
+          <a
+            href={GOOGLE_SIGN_IN_URL}
+            className="mt-5 flex w-full items-center justify-center rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
+          >
+            Continue with Google
+          </a>
+          <div className="mt-5 flex items-center gap-3 text-xs text-[var(--text-muted)]">
+            <span className="h-px flex-1 bg-[var(--border)]" />
+            or with a username
+            <span className="h-px flex-1 bg-[var(--border)]" />
+          </div>
+        </>
+      )}
 
       <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">

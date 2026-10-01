@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     # Sends the session cookie over HTTPS only. Off by default because local
     # development runs on plain http; the deployment turns it on.
     secure_cookies: bool = False
+    # Signing in with Google. Both come from an OAuth client in Google Cloud; left
+    # empty, the option is not offered.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Where Google sends the browser back to. It must be listed, exactly, among the
+    # OAuth client's authorized redirect URIs.
+    google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
+    # Where the browser goes once signed in: the page the frontend serves.
+    app_url: str = "http://localhost:3000"
     # Serves /docs, /redoc, and /openapi.json. Turn off where the API is public.
     api_docs: bool = True
 
