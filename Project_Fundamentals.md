@@ -452,7 +452,7 @@ NumPy
 SciPy
 ```
 
-scikit-learn is listed in the backend requirements for future ML work but is not used yet.
+scikit-learn was listed in the backend requirements for future ML work and removed unused; add it back when that work begins.
 
 ---
 

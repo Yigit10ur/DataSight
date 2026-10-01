@@ -31,7 +31,7 @@ Run the backend and frontend in separate terminals. The commands below assume ma
 cd backend
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -217,6 +217,7 @@ backend and everything else to the frontend.
    a password hash from `docker run --rm caddy:2 caddy hash-password`.
 3. Run `docker compose up -d --build`.
 
+Each container keeps at most 50 MB of logs (`docker compose logs` reads them).
 The backend runs as a single worker with a memory limit and restarts if it is
 killed. A restart loses every dataset held in memory, so the defaults keep the
 backend inside its 2 GB: 640 MB of retained datasets, two jobs at a time, 25 MiB
@@ -257,7 +258,12 @@ before checking TypeScript, so it also works on a fresh clone.
 Python 3.12 and Node.js 20.9.0 (the minimum supported version), with pip and npm
 dependency caches. Backend tests, frontend tests, lint, type checking, and the
 production build must all succeed; any failed command fails its job. The production build downloads Google fonts, so it needs
-network access even though tests do not.
+network access even though tests do not. A third job builds the production Docker
+images, starts the backend and frontend until both report healthy, and validates
+the Caddy configuration.
+
+`backend/requirements.txt` holds what the server runs and is all the Docker image
+installs; `backend/requirements-dev.txt` adds the test tools.
 
 ## Project structure
 

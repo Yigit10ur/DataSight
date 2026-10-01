@@ -2,6 +2,14 @@
 # HTTPS for DATASIGHT_DOMAIN, sends /api/* to the backend and everything else to
 # the frontend. Configure it in .env next to this file (see .env.example).
 
+# Docker keeps container logs forever by default, and a long-running server fills
+# its disk with them. Each service keeps at most 5 files of 10 MB.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   backend:
     build: ./backend
@@ -25,6 +33,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
+    logging: *logging
 
   frontend:
     build: ./frontend
@@ -40,6 +49,7 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    logging: *logging
 
   caddy:
     build:
@@ -65,6 +75,7 @@ services:
       frontend:
         condition: service_healthy
     restart: unless-stopped
+    logging: *logging
 
 volumes:
   caddy_data:

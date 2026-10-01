@@ -20,8 +20,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - run: python -m pip install -r requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
       - run: python -m pytest tests -q
 
   frontend:
@@ -41,3 +43,24 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+
+  # Builds the production images and starts them the way compose.yaml does, so a
+  # broken Dockerfile or proxy config fails here rather than on the server.
+  images:
+    runs-on: ubuntu-latest
+    env:
+      DATASIGHT_DOMAIN: ci.invalid
+      DATASIGHT_USER: ci
+    steps:
+      - uses: actions/checkout@v4
+      # compose.yaml requires a hash and the proxy refuses a malformed one, so
+      # make a real one first, without compose.
+      - run: echo "DATASIGHT_PASSWORD_HASH=$(docker run --rm caddy:2.11.4 caddy hash-password --plaintext ci)" >> "$GITHUB_ENV"
+      - run: docker compose build
+      # --wait returns once both services report healthy, and fails if either does not.
+      - run: docker compose up --detach --wait --wait-timeout 120 backend frontend
+      - run: docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down
