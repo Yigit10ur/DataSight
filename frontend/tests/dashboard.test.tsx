@@ -45,6 +45,7 @@ beforeEach(() => {
   vi.mocked(fetch).mockImplementation(async (input, init) => {
     const path = new URL(String(input)).pathname;
     requests.push({ path, init });
+    if (path === "/api/auth/me") return json({ username: "ada" });
     if (path === "/api/upload") return json(profile);
     if (path.endsWith("/charts")) return json({ dataset_id: profile.dataset_id, charts: [{
       id: "revenue-chart", chart_type: "histogram", title: "Revenue distribution",
@@ -71,22 +72,27 @@ beforeEach(() => {
   });
 });
 
-async function upload() {
+/** Sign in, then upload. `before` runs once signed in, ahead of the upload. */
+async function upload(before?: () => void) {
   const user = userEvent.setup();
   render(<Home />);
+  const chooser = await screen.findByLabelText("Upload dataset");
+  before?.();
   const file = new File(["revenue\n120\n240\n120\n"], "sales.csv", { type: "text/csv" });
-  await user.upload(screen.getByLabelText("Upload dataset"), file);
+  await user.upload(chooser, file);
   return { user, file };
 }
 
 test("uploads the selected file and disables the chooser while analysis is pending", async () => {
   let complete!: (response: Response) => void;
-  vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
-  const { file } = await upload();
+  const { file } = await upload(() => vi.mocked(fetch).mockImplementationOnce(
+    () => new Promise((resolve) => { complete = resolve; }),
+  ));
   expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
-  const [url, init] = vi.mocked(fetch).mock.calls[0];
+  const [url, init] = vi.mocked(fetch).mock.calls.at(-1)!;
   expect(String(url)).toMatch(/\/api\/upload$/);
   expect(init?.method).toBe("POST");
+  expect(init?.credentials).toBe("include");
   expect((init?.body as FormData).get("file")).toBe(file);
   complete(json(profile));
   expect(await screen.findByText("sales.csv")).toBeVisible();
@@ -105,8 +111,9 @@ test("renders the computed dashboard and preview", async () => {
 });
 
 test("shows the API error and lets the user retry the same file", async () => {
-  vi.mocked(fetch).mockResolvedValueOnce(json({ detail: "The CSV file is empty." }, 400));
-  const { user, file } = await upload();
+  const { user, file } = await upload(() => vi.mocked(fetch).mockResolvedValueOnce(
+    json({ detail: "The CSV file is empty." }, 400),
+  ));
   expect(await screen.findByText("The CSV file is empty.")).toBeVisible();
   expect(screen.queryByText("Data quality score")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Choose file" })).toBeEnabled();
@@ -142,4 +149,81 @@ test("adds a recipe step, previews its rows, and restores the original rows on r
   await user.click(screen.getByRole("button", { name: "Remove step 1" }));
   await waitFor(() => expect(screen.getAllByRole("cell", { name: "120" })).toHaveLength(2));
   expect(screen.getByRole("button", { name: "Save as a dataset" })).toBeDisabled();
+});
+
+function signedOut() {
+  const handler = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/auth/me") {
+      requests.push({ path, init });
+      return Promise.resolve(json({ detail: "Log in to continue." }, 401));
+    }
+    if (path === "/api/auth/login" || path === "/api/auth/signup") {
+      requests.push({ path, init });
+      return Promise.resolve(json({ username: "ada" }, path.endsWith("signup") ? 201 : 200));
+    }
+    return handler(input, init);
+  });
+}
+
+test("asks a signed-out reader to log in, then shows the upload area", async () => {
+  signedOut();
+  const user = userEvent.setup();
+  render(<Home />);
+  await user.type(await screen.findByLabelText("Username"), "ada");
+  await user.type(screen.getByLabelText("Password"), "correct horse");
+  expect(screen.queryByLabelText("Upload dataset")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Log in" }));
+  expect(await screen.findByLabelText("Upload dataset")).toBeInTheDocument();
+  expect(screen.getByText("ada")).toBeVisible();
+  const login = requests.find(({ path }) => path === "/api/auth/login")!;
+  expect(JSON.parse(String(login.init?.body))).toEqual({ username: "ada", password: "correct horse" });
+});
+
+test("creates an account from the same form", async () => {
+  signedOut();
+  const user = userEvent.setup();
+  render(<Home />);
+  await user.click(await screen.findByRole("button", { name: "Create an account" }));
+  await user.type(screen.getByLabelText("Username"), "ada");
+  await user.type(screen.getByLabelText("Password"), "correct horse");
+  await user.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByLabelText("Upload dataset")).toBeInTheDocument();
+  expect(requests.some(({ path }) => path === "/api/auth/signup")).toBe(true);
+});
+
+test("shows why logging in failed", async () => {
+  signedOut();
+  const handler = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/api/auth/login")
+    ? Promise.resolve(json({ detail: "Wrong username or password." }, 401))
+    : handler(input, init));
+  const user = userEvent.setup();
+  render(<Home />);
+  await user.type(await screen.findByLabelText("Username"), "ada");
+  await user.type(screen.getByLabelText("Password"), "not the one");
+  await user.click(screen.getByRole("button", { name: "Log in" }));
+  expect(await screen.findByText("Wrong username or password.")).toBeVisible();
+  expect(screen.queryByLabelText("Upload dataset")).not.toBeInTheDocument();
+});
+
+test("logging out returns to the log-in form and clears the dashboard", async () => {
+  const handler = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/api/auth/logout")
+    ? Promise.resolve(new Response(null, { status: 204 }))
+    : handler(input, init));
+  const { user } = await upload();
+  expect(await screen.findByText("sales.csv")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Log out" }));
+  expect(await screen.findByLabelText("Username")).toBeInTheDocument();
+  expect(screen.queryByText("sales.csv")).not.toBeInTheDocument();
+});
+
+test("a session that ends mid-work goes back to logging in", async () => {
+  await upload(() => vi.mocked(fetch).mockResolvedValueOnce(
+    json({ detail: "Log in to continue." }, 401),
+  ));
+  expect(await screen.findByLabelText("Username")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Upload dataset")).not.toBeInTheDocument();
 });

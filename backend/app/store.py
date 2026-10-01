@@ -66,6 +66,8 @@ def steps_phrase(count: int) -> str:
 @dataclass(frozen=True)
 class StoredDataset:
     dataset_id: str
+    # The account that uploaded it. A derived dataset belongs to its parent's owner.
+    owner_id: str
     filename: str
     profile: DatasetProfile
     expires_at: float
@@ -117,25 +119,32 @@ class DatasetStore:
         return uuid.uuid4().hex
 
     def add(
-        self, dataset_id: str, filename: str, frame: pd.DataFrame, profile: DatasetProfile
+        self,
+        dataset_id: str,
+        owner_id: str,
+        filename: str,
+        frame: pd.DataFrame,
+        profile: DatasetProfile,
     ) -> StoredDataset:
         # Measured before taking the lock: counting the text in a large frame takes
         # long enough that every other request would wait on it.
-        return self._add(dataset_id, filename, frame, frame_bytes(frame), profile)
+        return self._add(dataset_id, owner_id, filename, frame, frame_bytes(frame), profile)
 
     @synchronized
     def _add(
         self,
         dataset_id: str,
+        owner_id: str,
         filename: str,
         frame: pd.DataFrame,
         size: int,
         profile: DatasetProfile,
     ) -> StoredDataset:
-        self._check_capacity(dataset_id)
+        self._check_capacity(dataset_id, owner_id)
+        self._check_owner_bytes(owner_id, size)
         self._make_room(size)
         stored = StoredDataset(
-            dataset_id=dataset_id, filename=filename, profile=profile,
+            dataset_id=dataset_id, owner_id=owner_id, filename=filename, profile=profile,
             expires_at=self._clock() + settings.dataset_ttl_seconds,
         )
         self._datasets[dataset_id] = stored
@@ -154,7 +163,7 @@ class DatasetStore:
     ) -> StoredDataset:
         """Register the result of a recipe as a dataset in its own right."""
         self._require_live(parent)
-        self._check_capacity(dataset_id)
+        self._check_capacity(dataset_id, parent.owner_id)
         if len(self.lineage(parent)) >= MAX_LINEAGE_DEPTH:
             raise DatasetLimit(
                 f"This dataset is already {MAX_LINEAGE_DEPTH} steps from the file it came "
@@ -167,6 +176,7 @@ class DatasetStore:
 
         stored = StoredDataset(
             dataset_id=dataset_id,
+            owner_id=parent.owner_id,
             filename=profile.filename,
             profile=profile,
             expires_at=parent.expires_at,
@@ -182,6 +192,11 @@ class DatasetStore:
     @synchronized
     def get(self, dataset_id: str) -> StoredDataset | None:
         return self._datasets.get(dataset_id)
+
+    def get_owned(self, dataset_id: str, owner_id: str) -> StoredDataset | None:
+        """The dataset if this account owns it. Anyone else's reads as absent."""
+        stored = self.get(dataset_id)
+        return stored if stored is not None and stored.owner_id == owner_id else None
 
     @synchronized
     def frame_of(self, stored: StoredDataset) -> pd.DataFrame:
@@ -224,13 +239,43 @@ class DatasetStore:
         if self._datasets.get(stored.dataset_id) is not stored:
             raise DatasetNotFound()
 
-    def _check_capacity(self, dataset_id: str) -> None:
+    def _check_capacity(self, dataset_id: str, owner_id: str) -> None:
         if dataset_id in self._datasets:
             raise DatasetLimit("This dataset ID is already stored.")
+        owned = sum(1 for item in self._datasets.values() if item.owner_id == owner_id)
+        if owned >= settings.max_datasets_per_user:
+            raise DatasetLimit(
+                f"You already have {settings.max_datasets_per_user} datasets, the most one "
+                "account can hold. Export work you want to keep and retry after they expire."
+            )
         if len(self._datasets) >= settings.max_datasets:
             raise DatasetLimit(
                 f"The temporary dataset store is full ({settings.max_datasets} datasets). "
                 "Export work you want to keep and retry after datasets expire."
+            )
+
+    def _check_owner_bytes(self, owner_id: str, size: int) -> None:
+        """Keep one account's uploads within its share of the memory budget.
+
+        Only uploads count: cached derived frames are shared, evictable, and
+        rebuilt on demand, so they are the store's to manage rather than the owner's.
+        """
+        budget = settings.max_user_store_bytes
+        if size > budget:
+            raise DatasetLimit(
+                f"This file takes {megabytes(size)} in memory once read, more than the "
+                f"{megabytes(budget)} one account can use. Upload a smaller file."
+            )
+        owned = sum(
+            self._sizes[dataset_id]
+            for dataset_id in self._uploaded
+            if self._datasets[dataset_id].owner_id == owner_id
+        )
+        if owned + size > budget:
+            raise DatasetLimit(
+                f"This file takes {megabytes(size)} in memory once read, and your datasets "
+                f"already take {megabytes(owned)} of the {megabytes(budget)} one account "
+                "can use. Export work you want to keep and retry after it expires."
             )
 
     def _make_room(self, size: int) -> None:

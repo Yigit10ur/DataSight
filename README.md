@@ -14,6 +14,8 @@ Statistics, quality scores, findings, and chart data are all computed in Python.
 - **Recipe previews and export:** inspect intermediate results, run a focused analysis, save a derived dataset in the current session, or download the transformed rows as CSV.
 - **Dataset lineage:** follow a derived dataset back through the transformations that produced it.
 - **Example dataset:** a 60-row synthetic CSV in [example-data/](example-data/), with planted quality issues, so a fresh clone has something to upload.
+- **Accounts:** anyone can sign up with a username and password; each account sees
+  only its own datasets.
 - **Light and dark themes.**
 
 ## Run locally
@@ -56,10 +58,11 @@ The frontend connects to `http://localhost:8000` by default. To use another back
 New here? Follow the [walkthrough with the example data](#walkthrough-with-the-example-data)
 below, which needs no dataset of your own. Otherwise:
 
-1. Upload a `.csv` or `.xlsx` file.
-2. Review the dataset profile, quality report, ranked findings, and charts.
-3. Use **Shape this data** and the column menus to build a recipe and preview its results.
-4. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
+1. Create an account (**Create an account** under the log-in form), or log in.
+2. Upload a `.csv` or `.xlsx` file.
+3. Review the dataset profile, quality report, ranked findings, and charts.
+4. Use **Shape this data** and the column menus to build a recipe and preview its results.
+5. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
 
 Excel imports read the first worksheet. The default upload limit is 100 MiB, a
 file may have at most 1,000 columns, and a workbook may unpack to at most 128 MiB.
@@ -88,7 +91,7 @@ These figures have a test behind them instead — see [Verifying it](#verifying-
 ### 1. Start the app and upload the file
 
 Start the backend and the frontend as described under [Run locally](#run-locally),
-then open [http://localhost:3000](http://localhost:3000). Drop
+then open [http://localhost:3000](http://localhost:3000) and create an account. Drop
 `example-data/orders-sample.csv` onto the upload area, or click it and pick the file.
 
 The dashboard appears with four tiles across the top:
@@ -197,9 +200,14 @@ environment variables are ignored.
 | `DATASIGHT_MAX_STORE_BYTES` | `1073741824` | Memory the retained datasets may occupy, as pandas measures them. Cached derived frames give way first; past that, uploads and derived saves receive HTTP 409. |
 | `DATASIGHT_MAX_CONCURRENT_JOBS` | `2` | Parses, dashboard computations, and recipe runs allowed at once; others wait their turn. |
 | `DATASIGHT_MAX_WORKBOOK_BYTES` | `134217728` | Maximum unpacked size of an `.xlsx`, checked before it is read. |
+| `DATASIGHT_MAX_USER_STORE_BYTES` | `268435456` | One account's share of `DATASIGHT_MAX_STORE_BYTES`, counted over its uploads. |
+| `DATASIGHT_MAX_DATASETS_PER_USER` | `20` | One account's share of `DATASIGHT_MAX_DATASETS`, uploaded and derived. |
+| `DATASIGHT_DATABASE_PATH` | `backend/datasight.db` | SQLite file holding accounts and sessions. Created on first use. |
+| `DATASIGHT_SESSION_TTL_SECONDS` | `604800` | How long a log-in lasts, in seconds (7 days). |
+| `DATASIGHT_SECURE_COOKIES` | `false` | Sends the session cookie over HTTPS only. Leave off for local http; the deployment turns it on. |
 | `DATASIGHT_DASHBOARD_CACHE_SIZE` | `16` | Maximum datasets whose computed dashboard results are retained. Must be positive. |
 | `DATASIGHT_API_DOCS` | `true` | Serves the interactive API docs at `/docs`, `/redoc`, and `/openapi.json`. Set to `false` where the API is public. |
-| `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. |
+| `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. They receive credentialed access, and writes from any other origin are refused. |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend setting; configure in `frontend/.env.local`. |
 
 ## Deploy
@@ -207,15 +215,20 @@ environment variables are ignored.
 [compose.yaml](compose.yaml) runs the production stack on any server with Docker:
 the backend and frontend images, and a [Caddy](https://caddyserver.com) proxy
 ([deploy/Caddyfile](deploy/Caddyfile)) that is the only public entry point. Caddy
-obtains the HTTPS certificate automatically, puts the site behind one shared login,
-rate-limits requests, rejects oversized uploads before they reach the backend, and
-sets security headers. The site is served from one domain: `/api/*` goes to the
-backend and everything else to the frontend.
+obtains the HTTPS certificate automatically, rate-limits requests (log-in and
+sign-up to 10 a minute per address), rejects oversized uploads before they reach the
+backend, and sets security headers. The site is served from one domain: `/api/*`
+goes to the backend and everything else to the frontend.
 
 1. Point the domain's DNS at the server and open ports 80 and 443.
-2. Copy [.env.example](.env.example) to `.env` and set the domain, a login name, and
-   a password hash from `docker run --rm caddy:2 caddy hash-password`.
+2. Copy [.env.example](.env.example) to `.env` and set the domain.
 3. Run `docker compose up -d --build`.
+
+Sign-up is open: anyone who reaches the site can create an account. Accounts and
+sessions are kept in SQLite on the `datasight_data` volume, so they survive restarts
+and rebuilds; back up that volume to keep them. Each account may hold 10 datasets
+and 160 MB of uploads by default, so no single sign-up can fill the server. There is
+no password reset, since the server sends no email.
 
 Each container keeps at most 50 MB of logs (`docker compose logs` reads them).
 The backend runs as a single worker with a memory limit and restarts if it is
@@ -277,6 +290,7 @@ backend/
     insights/        Finding generation and ranking
     visualization/   Chart selection and chart data
     recipes/         Transformation validation and execution
+    accounts/        Users, password hashing, and sessions in SQLite
     api/             FastAPI endpoints
     dashboard.py     Shared bounded dashboard computation cache
     provenance.py    What a recipe changed about the meaning of a dataset's rows
@@ -316,10 +330,10 @@ container memory limit.
 A job cannot be interrupted once started, so there is no time limit beyond what
 the upload and workbook limits imply. The multipart parser receives and spools the
 request before the route's bounded read; in the [deployment](#deploy) the proxy
-rejects oversized bodies first and `/tmp` is a size-capped tmpfs. Behind its shared
-login the API has no per-user accounts or dataset access controls, and no durable
-storage; those must be planned separately before accepting private data from
-unrelated users.
+rejects oversized bodies first and `/tmp` is a size-capped tmpfs. Every dataset
+belongs to the account that uploaded it; another account's dataset answers exactly
+as a missing one. Datasets themselves are not durable: only accounts are stored on
+disk.
 
 Dashboard endpoints share one deterministic computation per dataset. For a normal
 dashboard load (`charts`, `quality`, and `insights`), the previous request path ran

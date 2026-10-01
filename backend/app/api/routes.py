@@ -3,10 +3,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pandas as pd
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
+from app.accounts import Account
 from app.analysis import DatasetAnalysis
+from app.api.auth import current_account
 from app.config import settings
 from app.dashboard import DashboardAnalysis, dashboard_cache
 from app.ingestion import DatasetValidationError, load_dataset
@@ -34,7 +36,9 @@ def health() -> dict[str, str]:
 
 
 @router.post("/upload", response_model=DatasetProfile)
-async def upload(file: UploadFile = File(...)) -> DatasetProfile:
+async def upload(
+    file: UploadFile = File(...), account: Account = Depends(current_account)
+) -> DatasetProfile:
     # Read at most the limit plus one sentinel byte, never the entire untrusted
     # file. UploadFile itself is spooled by the multipart parser before this route.
     content = bytearray()
@@ -51,7 +55,7 @@ async def upload(file: UploadFile = File(...)) -> DatasetProfile:
             content.extend(chunk)
         # Parsing and profiling are CPU-bound. Run on the event loop, one large file
         # would stall every other request until it finished.
-        return await asyncio.to_thread(_store_upload, file.filename, content)
+        return await asyncio.to_thread(_store_upload, account, file.filename, content)
     except DatasetValidationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except DatasetLimit as limit:
@@ -60,54 +64,71 @@ async def upload(file: UploadFile = File(...)) -> DatasetProfile:
         await file.close()
 
 
-def _store_upload(filename: str | None, content: bytearray) -> DatasetProfile:
+def _store_upload(account: Account, filename: str | None, content: bytearray) -> DatasetProfile:
     with job_slots:
         frame = load_dataset(filename or "", content, settings.max_upload_bytes)
         dataset_id = dataset_store.new_id()
         profile = profile_dataset(dataset_id, filename or "dataset", frame)
-        dataset_store.add(dataset_id, profile.filename, frame, profile)
+        dataset_store.add(dataset_id, account.id, profile.filename, frame, profile)
         return profile
 
 
 @router.get("/datasets/{dataset_id}/profile", response_model=DatasetProfile)
-def get_profile(dataset_id: str) -> DatasetProfile:
-    return _require_dataset(dataset_id).profile
+def get_profile(
+    dataset_id: str, account: Account = Depends(current_account)
+) -> DatasetProfile:
+    return _require_dataset(dataset_id, account).profile
 
 
 @router.get("/datasets/{dataset_id}/preview", response_model=DatasetPreview)
-def get_preview(dataset_id: str, limit: int = 25) -> DatasetPreview:
-    stored = _require_dataset(dataset_id)
+def get_preview(
+    dataset_id: str, limit: int = 25, account: Account = Depends(current_account)
+) -> DatasetPreview:
+    stored = _require_dataset(dataset_id, account)
     # A derived dataset's frame may have to be rebuilt from its recipe.
     with job_slots:
         return build_preview(dataset_id, dataset_store.frame_of(stored), limit)
 
 
 @router.get("/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis)
-def get_analysis(dataset_id: str) -> DatasetAnalysis:
-    stored = _require_dataset(dataset_id)
+def get_analysis(
+    dataset_id: str, account: Account = Depends(current_account)
+) -> DatasetAnalysis:
+    stored = _require_dataset(dataset_id, account)
     return _dashboard(stored).analysis
 
 
 @router.get("/datasets/{dataset_id}/charts", response_model=ChartCollection)
-def get_charts(dataset_id: str) -> ChartCollection:
-    stored = _require_dataset(dataset_id)
+def get_charts(
+    dataset_id: str, account: Account = Depends(current_account)
+) -> ChartCollection:
+    stored = _require_dataset(dataset_id, account)
     return _dashboard(stored).charts
 
 
 @router.get("/datasets/{dataset_id}/insights", response_model=InsightCollection)
-def get_insights(dataset_id: str) -> InsightCollection:
-    stored = _require_dataset(dataset_id)
+def get_insights(
+    dataset_id: str, account: Account = Depends(current_account)
+) -> InsightCollection:
+    stored = _require_dataset(dataset_id, account)
     return _dashboard(stored).insights
 
 
 @router.get("/datasets/{dataset_id}/quality", response_model=QualityReport)
-def get_quality(dataset_id: str) -> QualityReport:
-    stored = _require_dataset(dataset_id)
+def get_quality(
+    dataset_id: str, account: Account = Depends(current_account)
+) -> QualityReport:
+    stored = _require_dataset(dataset_id, account)
     return _dashboard(stored).quality
 
 
 @router.post("/datasets/{dataset_id}/recipe/preview", response_model=RecipePreview)
-def preview_recipe(dataset_id: str, recipe: Recipe, limit: int = 25) -> RecipePreview:
+def preview_recipe(
+    dataset_id: str,
+    recipe: Recipe,
+    limit: int = 25,
+    account: Account = Depends(current_account),
+) -> RecipePreview:
     """Run a recipe and throw the result away.
 
     This is what the interface calls while a reader is still building, so it stores
@@ -115,7 +136,7 @@ def preview_recipe(dataset_id: str, recipe: Recipe, limit: int = 25) -> RecipePr
     normal response together with the rows the accepted steps left, so the reader
     keeps their place while they fix it.
     """
-    stored = _require_dataset(dataset_id)
+    stored = _require_dataset(dataset_id, account)
     with job_slots:
         frame = dataset_store.frame_of(stored)
         run = run_recipe(frame, planned_columns(stored.profile.column_schemas), recipe)
@@ -132,14 +153,16 @@ def preview_recipe(dataset_id: str, recipe: Recipe, limit: int = 25) -> RecipePr
 
 
 @router.post("/datasets/{dataset_id}/recipe/apply", response_model=DatasetProfile)
-def apply_recipe(dataset_id: str, recipe: Recipe) -> DatasetProfile:
+def apply_recipe(
+    dataset_id: str, recipe: Recipe, account: Account = Depends(current_account)
+) -> DatasetProfile:
     """Keep a recipe's result as a dataset of its own.
 
     It answers with a profile, exactly as an upload does, because from here on the
     result is a dataset like any other: every other endpoint takes its id and needs
     to know nothing about where it came from.
     """
-    stored = _require_dataset(dataset_id)
+    stored = _require_dataset(dataset_id, account)
     if not recipe.steps:
         raise HTTPException(status_code=400, detail="A recipe with no steps changes nothing.")
     if recipe.analyze is not None:
@@ -207,14 +230,16 @@ def _attachment(name: str) -> str:
 
 
 @router.post("/datasets/{dataset_id}/recipe/export")
-def export_recipe(dataset_id: str, recipe: Recipe) -> StreamingResponse:
+def export_recipe(
+    dataset_id: str, recipe: Recipe, account: Account = Depends(current_account)
+) -> StreamingResponse:
     """Send the rows a recipe produces as a CSV, storing nothing.
 
     An empty recipe exports the dataset as it stands, which is what the button does
     when a reader has not shaped anything. A terminal analysis is dropped rather than
     run: a CSV is rows, and a finding is not one.
     """
-    stored = _require_dataset(dataset_id)
+    stored = _require_dataset(dataset_id, account)
     rows_only = Recipe(steps=recipe.steps)
     with job_slots:
         frame = dataset_store.frame_of(stored)
@@ -230,9 +255,11 @@ def export_recipe(dataset_id: str, recipe: Recipe) -> StreamingResponse:
 
 
 @router.get("/datasets/{dataset_id}/lineage", response_model=Lineage)
-def get_lineage(dataset_id: str) -> Lineage:
+def get_lineage(
+    dataset_id: str, account: Account = Depends(current_account)
+) -> Lineage:
     """Where this dataset came from, the uploaded file first."""
-    stored = _require_dataset(dataset_id)
+    stored = _require_dataset(dataset_id, account)
     return Lineage(
         dataset_id=dataset_id,
         chain=[
@@ -248,8 +275,10 @@ def get_lineage(dataset_id: str) -> Lineage:
     )
 
 
-def _require_dataset(dataset_id: str) -> StoredDataset:
-    stored = dataset_store.get(dataset_id)
+def _require_dataset(dataset_id: str, account: Account) -> StoredDataset:
+    # Another account's dataset is answered exactly as a missing one, so its ID
+    # cannot even be confirmed to exist.
+    stored = dataset_store.get_owned(dataset_id, account.id)
     if stored is None:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     return stored

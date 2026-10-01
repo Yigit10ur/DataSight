@@ -17,6 +17,7 @@ from app.store import (
     DatasetLimit,
     DatasetStore,
 )
+from tests.conftest import TEST_ACCOUNT
 
 
 def orders() -> pd.DataFrame:
@@ -34,7 +35,7 @@ def uploaded() -> tuple[DatasetStore, object]:
     frame = orders()
     dataset_id = store.new_id()
     profile = profile_dataset(dataset_id, "orders.csv", frame)
-    store.add(dataset_id, "orders.csv", frame, profile)
+    store.add(dataset_id, TEST_ACCOUNT.id, "orders.csv", frame, profile)
     return store, store.get(dataset_id)
 
 

@@ -50,15 +50,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATASIGHT_DOMAIN: ci.invalid
-      DATASIGHT_USER: ci
     steps:
       - uses: actions/checkout@v4
-      # compose.yaml requires a hash and the proxy refuses a malformed one, so
-      # make a real one first, without compose.
-      - run: echo "DATASIGHT_PASSWORD_HASH=$(docker run --rm caddy:2.11.4 caddy hash-password --plaintext ci)" >> "$GITHUB_ENV"
       - run: docker compose build
       # --wait returns once both services report healthy, and fails if either does not.
       - run: docker compose up --detach --wait --wait-timeout 120 backend frontend
+      # Signing up writes the accounts database, which proves the /data volume is
+      # writable by the backend's user inside its otherwise read-only container.
+      - run: >-
+          docker compose exec -T backend python -c "import json, urllib.request;
+          request = urllib.request.Request('http://127.0.0.1:8000/api/auth/signup',
+          data=json.dumps({'username': 'ci-check', 'password': 'ci-password'}).encode(),
+          headers={'Content-Type': 'application/json'});
+          assert urllib.request.urlopen(request).status == 201"
       - run: docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile
       - if: failure()
         run: docker compose logs

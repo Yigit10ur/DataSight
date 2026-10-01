@@ -1,5 +1,7 @@
 {
-	# Rate limits apply before the login check, so password guessing is limited too.
+	# rate_limit is a plugin, so Caddy needs to be told where it runs: early, before
+	# anything else handles the request. (basic_auth is only a position in Caddy's
+	# directive order here; the site signs people in with its own accounts.)
 	order rate_limit before basic_auth
 
 	servers {
@@ -27,10 +29,22 @@
 		-Server
 	}
 
-	# There are no user accounts, so the whole site sits behind one shared login.
-	# Generate the hash with: docker run --rm caddy:2 caddy hash-password
-	basic_auth {
-		{$DATASIGHT_USER} {$DATASIGHT_PASSWORD_HASH}
+	# Sign-up and log-in are where passwords are guessed and accounts mass-created,
+	# so they get a far tighter limit than the rest of the API. /api/auth/me is
+	# asked on every page load and stays out of it.
+	handle /api/auth/* {
+		@credentials path /api/auth/login /api/auth/signup
+		rate_limit @credentials {
+			zone accounts {
+				key {remote_host}
+				events 10
+				window 1m
+			}
+		}
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy backend:8000
 	}
 
 	handle /api/upload {

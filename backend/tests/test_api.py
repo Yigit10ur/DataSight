@@ -128,11 +128,13 @@ def test_upload_parses_off_the_event_loop(monkeypatch):
     assert loops == [None]
 
 
-def test_cors_does_not_grant_credentialed_access():
+def test_cors_grants_credentials_only_to_the_configured_frontend():
     response = client.get("/api/health", headers={"Origin": "http://localhost:3000"})
-
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
-    assert "access-control-allow-credentials" not in response.headers
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+    elsewhere = client.get("/api/health", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in elsewhere.headers
 
 
 def test_api_docs_can_be_turned_off(monkeypatch):
