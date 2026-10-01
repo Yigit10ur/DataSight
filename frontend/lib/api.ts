@@ -370,15 +370,29 @@ function readDetail(detail: unknown): string | null {
   return null;
 }
 
+/** The session ended or never began: the reader has to log in again. */
+export class SignedOutError extends Error {}
+
+/**
+ * Every request carries the session cookie. The page and the API share an origin
+ * when deployed, but not in development, where the cookie only travels if asked to.
+ */
+function send(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${API_URL}${path}`, { ...init, credentials: "include" });
+}
+
+async function failure(response: Response): Promise<Error> {
+  const detail = await response
+    .json()
+    .then((body) => readDetail(body?.detail))
+    .catch(() => null);
+  const message = detail ?? `Request failed with status ${response.status}`;
+  return response.status === 401 ? new SignedOutError(message) : new Error(message);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, init);
-  if (!response.ok) {
-    const detail = await response
-      .json()
-      .then((body) => readDetail(body?.detail))
-      .catch(() => null);
-    throw new Error(detail ?? `Request failed with status ${response.status}`);
-  }
+  const response = await send(path, init);
+  if (!response.ok) throw await failure(response);
   return response.json();
 }
 
@@ -388,6 +402,46 @@ function post<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export type Account = { username: string };
+
+/** Who is signed in, or null when nobody is. */
+export async function fetchAccount(): Promise<Account | null> {
+  try {
+    return await request<Account>("/api/auth/me");
+  } catch (cause) {
+    if (cause instanceof SignedOutError) return null;
+    throw cause;
+  }
+}
+
+export type Provider = "google" | "github";
+
+export const PROVIDER_NAMES: Record<Provider, string> = { google: "Google", github: "GitHub" };
+
+export type SignInOptions = Record<Provider, boolean>;
+
+export function fetchSignInOptions(): Promise<SignInOptions> {
+  return request<SignInOptions>("/api/auth/options");
+}
+
+/** A page, not a request: following it leaves for the provider and comes back signed in. */
+export function signInUrl(provider: Provider): string {
+  return `${API_URL}/api/auth/${provider}/start`;
+}
+
+export function signUp(username: string, password: string): Promise<Account> {
+  return post<Account>("/api/auth/signup", { username, password });
+}
+
+export function logIn(username: string, password: string): Promise<Account> {
+  return post<Account>("/api/auth/login", { username, password });
+}
+
+export async function logOut(): Promise<void> {
+  const response = await send("/api/auth/logout", { method: "POST" });
+  if (!response.ok) throw await failure(response);
 }
 
 export function uploadDataset(file: File): Promise<DatasetProfile> {
@@ -459,19 +513,12 @@ export async function exportRecipe(
   datasetId: string,
   recipe: Recipe,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${API_URL}/api/datasets/${datasetId}/recipe/export`, {
+  const response = await send(`/api/datasets/${datasetId}/recipe/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(recipe),
   });
-
-  if (!response.ok) {
-    const detail = await response
-      .json()
-      .then((body) => readDetail(body?.detail))
-      .catch(() => null);
-    throw new Error(detail ?? `Request failed with status ${response.status}`);
-  }
+  if (!response.ok) throw await failure(response);
 
   return {
     blob: await response.blob(),

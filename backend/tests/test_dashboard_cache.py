@@ -10,6 +10,7 @@ from app.dashboard import DashboardAnalysis, dashboard_cache
 from app.main import app
 from app.profiling import profile_dataset
 from app.store import DatasetStore
+from tests.conftest import TEST_ACCOUNT
 
 
 client = TestClient(app)
@@ -146,7 +147,7 @@ def test_delete_and_expiration_remove_cached_results(monkeypatch):
 
     first_id = store.new_id()
     first = store.add(
-        first_id, "first.csv", frame,
+        first_id, TEST_ACCOUNT.id, "first.csv", frame,
         profile_dataset(first_id, "first.csv", frame),
     )
     dashboard_cache.get_or_compute(
@@ -158,7 +159,7 @@ def test_delete_and_expiration_remove_cached_results(monkeypatch):
 
     second_id = store.new_id()
     second = store.add(
-        second_id, "second.csv", frame,
+        second_id, TEST_ACCOUNT.id, "second.csv", frame,
         profile_dataset(second_id, "second.csv", frame),
     )
     dashboard_cache.get_or_compute(
@@ -176,7 +177,7 @@ def test_result_finishing_after_expiration_is_not_cached(monkeypatch):
     frame = pd.DataFrame({"value": [1, 2, 3]})
     dataset_id = store.new_id()
     stored = store.add(
-        dataset_id, "late.csv", frame,
+        dataset_id, TEST_ACCOUNT.id, "late.csv", frame,
         profile_dataset(dataset_id, "late.csv", frame),
     )
     original = dashboard.build_insights

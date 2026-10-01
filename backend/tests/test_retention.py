@@ -16,6 +16,7 @@ from app.profiling import profile_dataset
 from app.quality import check_dataset_quality
 from app.recipes import LimitRows, Recipe
 from app.store import DatasetLimit, DatasetNotFound, DatasetStore, frame_bytes
+from tests.conftest import TEST_ACCOUNT
 
 CSV = b"name,value\nalpha,10\nbeta,20\n"
 
@@ -37,7 +38,10 @@ def upload(client):
 def add(store):
     frame = pd.DataFrame({"value": [10, 20, 30]})
     dataset_id = store.new_id()
-    return store.add(dataset_id, "demo.csv", frame, profile_dataset(dataset_id, "demo.csv", frame))
+    return store.add(
+        dataset_id, TEST_ACCOUNT.id, "demo.csv", frame,
+        profile_dataset(dataset_id, "demo.csv", frame),
+    )
 
 
 def derive(store, parent):

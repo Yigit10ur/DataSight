@@ -16,6 +16,16 @@ services:
     environment:
       DATASIGHT_CORS_ORIGINS: '["https://${DATASIGHT_DOMAIN:?set DATASIGHT_DOMAIN in .env}"]'
       DATASIGHT_API_DOCS: "false"
+      DATASIGHT_SECURE_COOKIES: "true"
+      # Signing in with Google, offered only when both are set in .env.
+      DATASIGHT_GOOGLE_CLIENT_ID: ${DATASIGHT_GOOGLE_CLIENT_ID:-}
+      DATASIGHT_GOOGLE_CLIENT_SECRET: ${DATASIGHT_GOOGLE_CLIENT_SECRET:-}
+      DATASIGHT_GOOGLE_REDIRECT_URI: https://${DATASIGHT_DOMAIN}/api/auth/google/callback
+      # Signing in with GitHub, likewise offered only when both are set.
+      DATASIGHT_GITHUB_CLIENT_ID: ${DATASIGHT_GITHUB_CLIENT_ID:-}
+      DATASIGHT_GITHUB_CLIENT_SECRET: ${DATASIGHT_GITHUB_CLIENT_SECRET:-}
+      DATASIGHT_GITHUB_REDIRECT_URI: https://${DATASIGHT_DOMAIN}/api/auth/github/callback
+      DATASIGHT_APP_URL: https://${DATASIGHT_DOMAIN}
       DATASIGHT_MAX_UPLOAD_BYTES: ${DATASIGHT_MAX_UPLOAD_BYTES:-26214400}
       DATASIGHT_MAX_DATASETS: ${DATASIGHT_MAX_DATASETS:-40}
       # Kept datasets plus the jobs in flight must fit DATASIGHT_BACKEND_MEMORY. With
@@ -24,11 +34,17 @@ services:
       DATASIGHT_MAX_STORE_BYTES: ${DATASIGHT_MAX_STORE_BYTES:-671088640}
       DATASIGHT_MAX_CONCURRENT_JOBS: ${DATASIGHT_MAX_CONCURRENT_JOBS:-2}
       DATASIGHT_MAX_WORKBOOK_BYTES: ${DATASIGHT_MAX_WORKBOOK_BYTES:-134217728}
+      # One account's share, so a single sign-up cannot fill the store for everyone.
+      DATASIGHT_MAX_USER_STORE_BYTES: ${DATASIGHT_MAX_USER_STORE_BYTES:-167772160}
+      DATASIGHT_MAX_DATASETS_PER_USER: ${DATASIGHT_MAX_DATASETS_PER_USER:-10}
       DATASIGHT_DATASET_TTL_SECONDS: ${DATASIGHT_DATASET_TTL_SECONDS:-3600}
     # Uploads are spooled to /tmp while they arrive; its size caps that disk use.
     read_only: true
     tmpfs:
       - /tmp:size=512m
+    # Accounts and sessions. Datasets stay in memory; this is all that persists.
+    volumes:
+      - datasight_data:/data
     mem_limit: ${DATASIGHT_BACKEND_MEMORY:-2g}
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -61,8 +77,6 @@ services:
       - "443:443/udp"
     environment:
       DATASIGHT_DOMAIN: ${DATASIGHT_DOMAIN}
-      DATASIGHT_USER: ${DATASIGHT_USER:?set DATASIGHT_USER in .env}
-      DATASIGHT_PASSWORD_HASH: ${DATASIGHT_PASSWORD_HASH:?set DATASIGHT_PASSWORD_HASH in .env}
       # The upload limit plus room for the multipart envelope around the file.
       DATASIGHT_PROXY_MAX_UPLOAD: ${DATASIGHT_PROXY_MAX_UPLOAD:-26MiB}
     volumes:
@@ -78,5 +92,6 @@ services:
     logging: *logging
 
 volumes:
+  datasight_data:
   caddy_data:
   caddy_config:
