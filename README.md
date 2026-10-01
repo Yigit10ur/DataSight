@@ -61,8 +61,8 @@ below, which needs no dataset of your own. Otherwise:
 3. Use **Shape this data** and the column menus to build a recipe and preview its results.
 4. Save the result as a derived dataset for further exploration, or download the transformed rows as CSV.
 
-Excel imports read the first worksheet. The default upload limit is 100 MiB, and a
-file may have at most 1,000 columns.
+Excel imports read the first worksheet. The default upload limit is 100 MiB, a
+file may have at most 1,000 columns, and a workbook may unpack to at most 128 MiB.
 Files exceeding the configured limit receive HTTP 413. The application reads in
 chunks and stops after at most the limit plus one byte, before parsing or storing
 an oversized file. Existing CSV and XLSX content validation still applies.
@@ -194,6 +194,9 @@ environment variables are ignored.
 | `DATASIGHT_MAX_UPLOAD_BYTES` | `104857600` | Maximum accepted file size in bytes. |
 | `DATASIGHT_DATASET_TTL_SECONDS` | `3600` | Fixed lifetime of an upload and its descendants, in seconds. Must be positive and finite. |
 | `DATASIGHT_MAX_DATASETS` | `100` | Maximum total uploaded and derived datasets retained by the backend process. Must be positive. |
+| `DATASIGHT_MAX_STORE_BYTES` | `1073741824` | Memory the retained datasets may occupy, as pandas measures them. Cached derived frames give way first; past that, uploads and derived saves receive HTTP 409. |
+| `DATASIGHT_MAX_CONCURRENT_JOBS` | `2` | Parses, dashboard computations, and recipe runs allowed at once; others wait their turn. |
+| `DATASIGHT_MAX_WORKBOOK_BYTES` | `134217728` | Maximum unpacked size of an `.xlsx`, checked before it is read. |
 | `DATASIGHT_DASHBOARD_CACHE_SIZE` | `16` | Maximum datasets whose computed dashboard results are retained. Must be positive. |
 | `DATASIGHT_API_DOCS` | `true` | Serves the interactive API docs at `/docs`, `/redoc`, and `/openapi.json`. Set to `false` where the API is public. |
 | `DATASIGHT_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins, expressed as a JSON array. |
@@ -215,9 +218,13 @@ backend and everything else to the frontend.
 3. Run `docker compose up -d --build`.
 
 The backend runs as a single worker with a memory limit and restarts if it is
-killed. A restart loses every dataset held in memory. Size
-`DATASIGHT_MAX_UPLOAD_BYTES`, `DATASIGHT_MAX_DATASETS`, and `DATASIGHT_BACKEND_MEMORY`
-to the server's RAM.
+killed. A restart loses every dataset held in memory, so the defaults keep the
+backend inside its 2 GB: 640 MB of retained datasets, two jobs at a time, 25 MiB
+uploads, and workbooks that unpack to at most 128 MiB. Raising
+`DATASIGHT_BACKEND_MEMORY` means raising `DATASIGHT_MAX_STORE_BYTES` with it; raising
+the upload or workbook limit, or the job count, means leaving more of the memory
+unclaimed by datasets. Measured on a 25 MB CSV: 154 MB once stored, about 450 MB
+while it is parsed and analysed.
 
 ## Development checks
 
@@ -291,16 +298,22 @@ Expired entries are reclaimed before checking capacity. The count limit includes
 derived recipe records; the existing four-frame derived cache, per-parent limit
 of 20 children, and lineage depth limit of 10 also apply.
 
-These are retention bounds, **not a total process-memory budget**. Parsed CSV data
-and decompressed XLSX workbooks can be much larger than the upload; parsing,
-profiling, analyses, and recipes can allocate temporary copies. In-flight requests
-may keep references until they finish. The multipart parser receives and spools
-the request before the route's bounded read, so the route limit does not bound
-incoming traffic or temporary disk usage. Before public hosting, add reverse-proxy
-body limits, request/concurrency limits, parsing time and memory budgets, XLSX
-expansion limits, and disk quotas. The API also has no authentication or per-user
-dataset access controls, and no durable storage; those capabilities must be planned
-separately before accepting private data from unrelated users.
+Memory is bounded in two parts. Retained frames, uploaded and cached derived, count
+against `DATASIGHT_MAX_STORE_BYTES`; cached derived frames are dropped first, since
+any can be rebuilt from its recipe. Work in flight is bounded by
+`DATASIGHT_MAX_CONCURRENT_JOBS`, since parsing, profiling, analyses, and recipes
+allocate temporary copies several times a frame's size. Workbooks are refused
+before reading if they would unpack past `DATASIGHT_MAX_WORKBOOK_BYTES`. These are
+estimates rather than a hard ceiling, which is why the deployment also sets a
+container memory limit.
+
+A job cannot be interrupted once started, so there is no time limit beyond what
+the upload and workbook limits imply. The multipart parser receives and spools the
+request before the route's bounded read; in the [deployment](#deploy) the proxy
+rejects oversized bodies first and `/tmp` is a size-capped tmpfs. Behind its shared
+login the API has no per-user accounts or dataset access controls, and no durable
+storage; those must be planned separately before accepting private data from
+unrelated users.
 
 Dashboard endpoints share one deterministic computation per dataset. For a normal
 dashboard load (`charts`, `quality`, and `insights`), the previous request path ran

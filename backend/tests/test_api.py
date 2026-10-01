@@ -1,3 +1,6 @@
+import io
+
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -50,6 +53,20 @@ def test_preview_respects_limit():
     body = client.get(f"/api/datasets/{dataset_id}/preview?limit=2").json()
     assert len(body["rows"]) == 2
     assert body["total_rows"] == 3
+
+
+def test_workbook_with_year_columns_reaches_the_dashboard():
+    buffer = io.BytesIO()
+    pd.DataFrame(
+        [["North", 10, 12], ["South", 8, 9], ["East", 5, 7], ["West", 11, 15]],
+        columns=["region", 2023, 2024],
+    ).to_excel(buffer, index=False)
+    dataset_id = client.post(
+        "/api/upload", files={"file": ("sales.xlsx", buffer.getvalue())}
+    ).json()["dataset_id"]
+
+    for endpoint in ("analysis", "quality", "charts", "insights"):
+        assert client.get(f"/api/datasets/{dataset_id}/{endpoint}").status_code == 200
 
 
 def test_unknown_dataset_returns_404():

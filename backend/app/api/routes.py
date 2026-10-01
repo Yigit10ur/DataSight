@@ -10,6 +10,7 @@ from app.analysis import DatasetAnalysis
 from app.config import settings
 from app.dashboard import DashboardAnalysis, dashboard_cache
 from app.ingestion import DatasetValidationError, load_dataset
+from app.jobs import job_slots
 from app.insights import InsightCollection
 from app.profiling import DatasetPreview, DatasetProfile, build_preview, profile_dataset
 from app.quality import QualityReport
@@ -60,11 +61,12 @@ async def upload(file: UploadFile = File(...)) -> DatasetProfile:
 
 
 def _store_upload(filename: str | None, content: bytearray) -> DatasetProfile:
-    frame = load_dataset(filename or "", content, settings.max_upload_bytes)
-    dataset_id = dataset_store.new_id()
-    profile = profile_dataset(dataset_id, filename or "dataset", frame)
-    dataset_store.add(dataset_id, profile.filename, frame, profile)
-    return profile
+    with job_slots:
+        frame = load_dataset(filename or "", content, settings.max_upload_bytes)
+        dataset_id = dataset_store.new_id()
+        profile = profile_dataset(dataset_id, filename or "dataset", frame)
+        dataset_store.add(dataset_id, profile.filename, frame, profile)
+        return profile
 
 
 @router.get("/datasets/{dataset_id}/profile", response_model=DatasetProfile)
@@ -75,7 +77,9 @@ def get_profile(dataset_id: str) -> DatasetProfile:
 @router.get("/datasets/{dataset_id}/preview", response_model=DatasetPreview)
 def get_preview(dataset_id: str, limit: int = 25) -> DatasetPreview:
     stored = _require_dataset(dataset_id)
-    return build_preview(dataset_id, dataset_store.frame_of(stored), limit)
+    # A derived dataset's frame may have to be rebuilt from its recipe.
+    with job_slots:
+        return build_preview(dataset_id, dataset_store.frame_of(stored), limit)
 
 
 @router.get("/datasets/{dataset_id}/analysis", response_model=DatasetAnalysis)
@@ -112,18 +116,19 @@ def preview_recipe(dataset_id: str, recipe: Recipe, limit: int = 25) -> RecipePr
     keeps their place while they fix it.
     """
     stored = _require_dataset(dataset_id)
-    frame = dataset_store.frame_of(stored)
-    run = run_recipe(frame, planned_columns(stored.profile.column_schemas), recipe)
+    with job_slots:
+        frame = dataset_store.frame_of(stored)
+        run = run_recipe(frame, planned_columns(stored.profile.column_schemas), recipe)
 
-    return RecipePreview(
-        dataset_id=dataset_id,
-        source_rows=len(frame),
-        columns=run.columns,
-        preview=build_preview(dataset_id, run.frame, limit),
-        reports=run.reports,
-        analysis=run.analysis,
-        refusal=run.refusal,
-    )
+        return RecipePreview(
+            dataset_id=dataset_id,
+            source_rows=len(frame),
+            columns=run.columns,
+            preview=build_preview(dataset_id, run.frame, limit),
+            reports=run.reports,
+            analysis=run.analysis,
+            refusal=run.refusal,
+        )
 
 
 @router.post("/datasets/{dataset_id}/recipe/apply", response_model=DatasetProfile)
@@ -148,25 +153,26 @@ def apply_recipe(dataset_id: str, recipe: Recipe) -> DatasetProfile:
             ),
         )
 
-    frame = dataset_store.frame_of(stored)
-    run = run_recipe(frame, planned_columns(stored.profile.column_schemas), recipe)
-    if run.refusal is not None:
-        raise HTTPException(status_code=400, detail=run.refusal.model_dump())
-    if run.frame.empty:
-        raise HTTPException(
-            status_code=400,
-            detail="This recipe leaves no rows, and there is nothing to profile in that.",
-        )
+    with job_slots:
+        frame = dataset_store.frame_of(stored)
+        run = run_recipe(frame, planned_columns(stored.profile.column_schemas), recipe)
+        if run.refusal is not None:
+            raise HTTPException(status_code=400, detail=run.refusal.model_dump())
+        if run.frame.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="This recipe leaves no rows, and there is nothing to profile in that.",
+            )
 
-    derived_id = dataset_store.new_id()
-    profile = profile_dataset(
-        derived_id, dataset_store.derived_name(stored, len(recipe.steps)), run.frame
-    )
-    try:
-        dataset_store.add_derived(derived_id, stored, recipe, run.frame, profile)
-    except DatasetLimit as limit:
-        raise HTTPException(status_code=409, detail=str(limit)) from limit
-    return profile
+        derived_id = dataset_store.new_id()
+        profile = profile_dataset(
+            derived_id, dataset_store.derived_name(stored, len(recipe.steps)), run.frame
+        )
+        try:
+            dataset_store.add_derived(derived_id, stored, recipe, run.frame, profile)
+        except DatasetLimit as limit:
+            raise HTTPException(status_code=409, detail=str(limit)) from limit
+        return profile
 
 
 # Written out in slices rather than as one string, so that exporting a large file
@@ -209,9 +215,10 @@ def export_recipe(dataset_id: str, recipe: Recipe) -> StreamingResponse:
     run: a CSV is rows, and a finding is not one.
     """
     stored = _require_dataset(dataset_id)
-    frame = dataset_store.frame_of(stored)
     rows_only = Recipe(steps=recipe.steps)
-    run = run_recipe(frame, planned_columns(stored.profile.column_schemas), rows_only)
+    with job_slots:
+        frame = dataset_store.frame_of(stored)
+        run = run_recipe(frame, planned_columns(stored.profile.column_schemas), rows_only)
     if run.refusal is not None:
         raise HTTPException(status_code=400, detail=run.refusal.model_dump())
 
@@ -250,15 +257,16 @@ def _require_dataset(dataset_id: str) -> StoredDataset:
 
 def _dashboard(stored: StoredDataset) -> DashboardAnalysis:
     """Compute once for this immutable dataset and reject a result that expired."""
-    frame = dataset_store.frame_of(stored)
-    shaped = dataset_store.provenance(stored)
-    result = dashboard_cache.get_or_compute(
-        stored.dataset_id,
-        frame,
-        stored.profile,
-        shaped,
-        retain=lambda: dataset_store.get(stored.dataset_id) is stored,
-    )
+    with job_slots:
+        frame = dataset_store.frame_of(stored)
+        shaped = dataset_store.provenance(stored)
+        result = dashboard_cache.get_or_compute(
+            stored.dataset_id,
+            frame,
+            stored.profile,
+            shaped,
+            retain=lambda: dataset_store.get(stored.dataset_id) is stored,
+        )
     if dataset_store.get(stored.dataset_id) is not stored:
         dashboard_cache.remove(stored.dataset_id)
         raise HTTPException(status_code=404, detail="Dataset not found.")

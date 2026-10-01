@@ -15,7 +15,7 @@ from app.main import app
 from app.profiling import profile_dataset
 from app.quality import check_dataset_quality
 from app.recipes import LimitRows, Recipe
-from app.store import DatasetLimit, DatasetNotFound, DatasetStore
+from app.store import DatasetLimit, DatasetNotFound, DatasetStore, frame_bytes
 
 CSV = b"name,value\nalpha,10\nbeta,20\n"
 
@@ -131,6 +131,80 @@ def test_derived_entries_count_toward_capacity(retained, monkeypatch):
     assert [item.dataset_id for item in store.lineage(child)] == [root.dataset_id, child.dataset_id]
 
 
+def test_uploads_refuse_past_the_memory_budget_then_reclaim_expired_space(retained, monkeypatch):
+    store, now, _ = retained
+    size = frame_bytes(pd.DataFrame({"value": [10, 20, 30]}))
+    monkeypatch.setattr(settings, "max_store_bytes", size * 2)
+    first, second = add(store), add(store)
+    with pytest.raises(DatasetLimit, match="store is full"):
+        add(store)
+    assert set(store._uploaded) == {first.dataset_id, second.dataset_id}
+    now[0] += 10
+    add(store)
+    assert len(store._uploaded) == 1
+    assert store._held_bytes() == size
+
+
+def test_a_file_larger_than_the_whole_budget_is_refused(retained, monkeypatch):
+    store, _, client = retained
+    monkeypatch.setattr(settings, "max_store_bytes", 1)
+    response = upload(client)
+    assert response.status_code == 409
+    assert "Upload a smaller file" in response.json()["detail"]
+    assert not store._datasets and not store._sizes
+
+
+def test_cached_derived_frames_give_way_to_an_upload(retained, monkeypatch):
+    store, _, _ = retained
+    root = add(store)
+    child = derive(store, root)
+    assert child.dataset_id in store._derived
+    # Room for two uploads, so the second fits only once the cached child is gone.
+    monkeypatch.setattr(settings, "max_store_bytes", 2 * store._sizes[root.dataset_id])
+    other = add(store)
+    assert child.dataset_id not in store._derived
+    assert set(store._sizes) == {root.dataset_id, other.dataset_id}
+    # Forgotten is not lost: the frame is rebuilt from its recipe when asked for.
+    assert len(store.frame_of(child)) == 2
+
+
+def test_a_derived_frame_over_budget_is_returned_but_not_kept(retained, monkeypatch):
+    store, _, _ = retained
+    root = add(store)
+    child = derive(store, root)
+    store._derived.clear()
+    store._sizes.pop(child.dataset_id)
+    monkeypatch.setattr(settings, "max_store_bytes", store._held_bytes())
+    assert len(store.frame_of(child)) == 2
+    assert not store._derived
+    assert set(store._sizes) == {root.dataset_id}
+
+
+def test_heavy_work_waits_for_a_job_slot(retained, monkeypatch):
+    import threading
+    import time
+
+    _, _, client = retained
+    running, peak, guard = [0], [0], threading.Lock()
+    original = routes.profile_dataset
+
+    def slow_profile(*args):
+        with guard:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.05)
+        with guard:
+            running[0] -= 1
+        return original(*args)
+
+    monkeypatch.setattr(routes, "job_slots", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(routes, "profile_dataset", slow_profile)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(lambda _: upload(client), range(4)))
+    assert [response.status_code for response in responses] == [200] * 4
+    assert peak[0] == 1
+
+
 def test_expiration_is_fixed_and_descendants_share_root_deadline(retained):
     store, now, _ = retained
     root = add(store)
@@ -146,6 +220,7 @@ def test_expiration_is_fixed_and_descendants_share_root_deadline(retained):
     assert set(store._datasets) == {other.dataset_id}
     assert set(store._uploaded) == {other.dataset_id}
     assert not store._derived
+    assert set(store._sizes) == {other.dataset_id}
     for item in (root, child, grandchild):
         assert store.get(item.dataset_id) is None
         with pytest.raises(DatasetNotFound):

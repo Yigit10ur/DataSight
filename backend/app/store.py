@@ -49,6 +49,15 @@ def synchronized(method):
     return wrapped
 
 
+def frame_bytes(frame: pd.DataFrame) -> int:
+    """What a frame occupies in memory, text included."""
+    return int(frame.memory_usage(index=True, deep=True).sum())
+
+
+def megabytes(size: int) -> str:
+    return f"{size / (1024 * 1024):,.0f} MB"
+
+
 def steps_phrase(count: int) -> str:
     """How far a dataset has come from its file, in words. One place, two readers."""
     return f"{count} step" if count == 1 else f"{count} steps"
@@ -101,21 +110,37 @@ class DatasetStore:
         self._datasets: dict[str, StoredDataset] = {}
         self._uploaded: dict[str, pd.DataFrame] = {}
         self._derived: OrderedDict[str, pd.DataFrame] = OrderedDict()
+        # The size of every frame held above, uploaded or cached, by dataset id.
+        self._sizes: dict[str, int] = {}
 
     def new_id(self) -> str:
         return uuid.uuid4().hex
 
-    @synchronized
     def add(
         self, dataset_id: str, filename: str, frame: pd.DataFrame, profile: DatasetProfile
     ) -> StoredDataset:
+        # Measured before taking the lock: counting the text in a large frame takes
+        # long enough that every other request would wait on it.
+        return self._add(dataset_id, filename, frame, frame_bytes(frame), profile)
+
+    @synchronized
+    def _add(
+        self,
+        dataset_id: str,
+        filename: str,
+        frame: pd.DataFrame,
+        size: int,
+        profile: DatasetProfile,
+    ) -> StoredDataset:
         self._check_capacity(dataset_id)
+        self._make_room(size)
         stored = StoredDataset(
             dataset_id=dataset_id, filename=filename, profile=profile,
             expires_at=self._clock() + settings.dataset_ttl_seconds,
         )
         self._datasets[dataset_id] = stored
         self._uploaded[dataset_id] = frame
+        self._sizes[dataset_id] = size
         return stored
 
     @synchronized
@@ -208,6 +233,34 @@ class DatasetStore:
                 "Export work you want to keep and retry after datasets expire."
             )
 
+    def _make_room(self, size: int) -> None:
+        """Fit a new upload in the memory budget, or refuse it.
+
+        Cached derived frames give way first, since any of them can be rebuilt. An
+        upload that has not expired is never evicted for another: its reader would
+        lose their work to someone else's file.
+        """
+        budget = settings.max_store_bytes
+        if size > budget:
+            raise DatasetLimit(
+                f"This file takes {megabytes(size)} in memory once read, more than the "
+                f"{megabytes(budget)} this server keeps for datasets. Upload a smaller file."
+            )
+        while self._derived and self._held_bytes() + size > budget:
+            self._forget_oldest_derived()
+        if self._held_bytes() + size > budget:
+            raise DatasetLimit(
+                f"The temporary dataset store is full ({megabytes(budget)} of memory). "
+                "Export work you want to keep and retry after datasets expire."
+            )
+
+    def _held_bytes(self) -> int:
+        return sum(self._sizes.values())
+
+    def _forget_oldest_derived(self) -> None:
+        evicted, _ = self._derived.popitem(last=False)
+        self._sizes.pop(evicted, None)
+
     def _purge_expired(self) -> None:
         now = self._clock()
         for dataset_id in [
@@ -225,6 +278,7 @@ class DatasetStore:
             self._datasets.pop(current, None)
             self._uploaded.pop(current, None)
             self._derived.pop(current, None)
+            self._sizes.pop(current, None)
             clear_dashboard_cache(current)
 
     def derived_name(self, parent: StoredDataset, step_count: int) -> str:
@@ -273,8 +327,12 @@ class DatasetStore:
             raise DatasetNotFound()
         self._derived[dataset_id] = frame
         self._derived.move_to_end(dataset_id)
-        while len(self._derived) > DERIVED_CACHE_SIZE:
-            self._derived.popitem(last=False)
+        self._sizes[dataset_id] = frame_bytes(frame)
+        # Over budget, this may forget the frame just added; the caller still has it.
+        while len(self._derived) > DERIVED_CACHE_SIZE or (
+            self._derived and self._held_bytes() > settings.max_store_bytes
+        ):
+            self._forget_oldest_derived()
 
 
 dataset_store = DatasetStore()

@@ -5,6 +5,7 @@ import io
 import pandas as pd
 import pytest
 
+from app.config import settings
 from app.ingestion import DatasetValidationError, load_dataset
 from app.ingestion.csv_loader import SNIFF_BYTES
 from app.ingestion.validator import MAX_COLUMNS
@@ -109,6 +110,28 @@ def test_loads_excel():
     frame = load_dataset("data.xlsx", buffer.getvalue(), MAX_BYTES)
     assert list(frame.columns) == ["a", "b"]
     assert len(frame) == 2
+
+
+def test_names_excel_columns_as_text():
+    buffer = io.BytesIO()
+    pd.DataFrame([["North", 10, 12, 1]], columns=["region", 2023, 2024, "2023"]).to_excel(
+        buffer, index=False
+    )
+    frame = load_dataset("sales.xlsx", buffer.getvalue(), MAX_BYTES)
+    assert list(frame.columns) == ["region", "2023", "2024", "2023.1"]
+
+
+def test_rejects_a_workbook_that_unpacks_past_the_limit(monkeypatch):
+    buffer = io.BytesIO()
+    pd.DataFrame({"a": ["x" * 100] * 1000}).to_excel(buffer, index=False)
+    monkeypatch.setattr(settings, "max_workbook_bytes", 50_000)
+    with pytest.raises(DatasetValidationError, match="unpacks to"):
+        load_dataset("big.xlsx", buffer.getvalue(), MAX_BYTES)
+
+
+def test_rejects_an_xlsx_that_is_not_a_workbook():
+    with pytest.raises(DatasetValidationError, match="not an .xlsx workbook"):
+        load_dataset("notes.xlsx", b"name,age\nAda,36\n", MAX_BYTES)
 
 
 def test_rejects_unsupported_extension():
