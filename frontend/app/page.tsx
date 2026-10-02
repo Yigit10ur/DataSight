@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { AccountForm } from "@/components/AccountForm";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Workspace } from "@/components/Workspace";
+import { Workspace, rememberDataset } from "@/components/Workspace";
 import { fetchAccount, logOut, type Account } from "@/lib/api";
 
 export default function Home() {
@@ -21,6 +21,9 @@ export default function Home() {
     try {
       await logOut();
     } finally {
+      // The next account to log in here must not be sent to this one's dataset. A
+      // session that merely expired keeps it, so logging back in reopens it.
+      rememberDataset(null);
       setAccount(null);
     }
   }

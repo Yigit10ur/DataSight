@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ChartGrid } from "@/components/ChartGrid";
 import { ColumnTable } from "@/components/ColumnTable";
@@ -12,6 +12,7 @@ import { QualityScore } from "@/components/QualityScore";
 import { RecipeWorkbench } from "@/components/RecipeWorkbench";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
+  NotFoundError,
   SignedOutError,
   fetchCharts,
   fetchInsights,
@@ -27,6 +28,25 @@ import {
   type QualityScore as Score,
 } from "@/lib/api";
 
+const DATASET_PARAM = "dataset";
+
+/**
+ * Keeps the open dataset's ID in the address, or takes it out with null, so that
+ * reloading the page reopens what was on screen. Replaced rather than pushed: the
+ * lineage trail, not the back button, is how a reader steps between datasets.
+ */
+export function rememberDataset(id: string | null) {
+  const address = new URL(window.location.href);
+  if (id) address.searchParams.set(DATASET_PARAM, id);
+  else address.searchParams.delete(DATASET_PARAM);
+  window.history.replaceState(null, "", address);
+}
+
+function datasetInAddress(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(DATASET_PARAM);
+}
+
 type Props = {
   /** The session ended while working; the page goes back to logging in. */
   onSignedOut: () => void;
@@ -40,7 +60,7 @@ export function Workspace({ onSignedOut }: Props) {
   const [issues, setIssues] = useState<QualityIssue[]>([]);
   const [score, setScore] = useState<Score | null>(null);
   const [lineage, setLineage] = useState<Lineage | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
+  const [isBusy, setIsBusy] = useState(() => datasetInAddress() !== null);
   const [error, setError] = useState<string | null>(null);
 
   /** Put one dataset on the screen, whether it was uploaded, shaped or stepped back to. */
@@ -58,6 +78,7 @@ export function Workspace({ onSignedOut }: Props) {
     setInsights(found.insights);
     setLineage(trail);
     setProfile(shown);
+    rememberDataset(id);
   }
 
   async function load(fetching: () => Promise<DatasetProfile>) {
@@ -66,21 +87,48 @@ export function Workspace({ onSignedOut }: Props) {
     try {
       await show(await fetching());
     } catch (cause) {
-      if (cause instanceof SignedOutError) {
-        onSignedOut();
-        return;
-      }
-      setError(cause instanceof Error ? cause.message : "That did not work.");
-      setProfile(null);
-      setCharts([]);
-      setIssues([]);
-      setScore(null);
-      setInsights([]);
-      setLineage(null);
+      fail(cause);
     } finally {
       setIsBusy(false);
     }
   }
+
+  /** Say what went wrong and clear the dashboard, rather than leave half of one. */
+  function fail(cause: unknown) {
+    if (cause instanceof SignedOutError) {
+      onSignedOut();
+      return;
+    }
+    setError(
+      cause instanceof NotFoundError
+        ? "That dataset has expired or is no longer available. Datasets are temporary; " +
+            "upload the file again to carry on."
+        : cause instanceof Error
+          ? cause.message
+          : "That did not work.",
+    );
+    rememberDataset(null);
+    setProfile(null);
+    setCharts([]);
+    setIssues([]);
+    setScore(null);
+    setInsights([]);
+    setLineage(null);
+  }
+
+  // Reopen the dataset a reload, or logging back in, left in the address. Busy
+  // from the first render, so the upload area never looks idle while it loads.
+  useEffect(() => {
+    const id = datasetInAddress();
+    if (id) {
+      fetchProfile(id)
+        .then(show)
+        .catch(fail)
+        .finally(() => setIsBusy(false));
+    }
+    // Only on arrival: afterwards the address follows what is shown, not the reverse.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // A chart that already sits inside a finding does not need to be shown again.
   const charted = new Set(insights.map((insight) => insight.chart_id));

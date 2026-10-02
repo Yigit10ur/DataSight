@@ -373,6 +373,9 @@ function readDetail(detail: unknown): string | null {
 /** The session ended or never began: the reader has to log in again. */
 export class SignedOutError extends Error {}
 
+/** The dataset expired, or was never this account's to see. */
+export class NotFoundError extends Error {}
+
 /**
  * Every request carries the session cookie. The page and the API share an origin
  * when deployed, but not in development, where the cookie only travels if asked to.
@@ -387,7 +390,9 @@ async function failure(response: Response): Promise<Error> {
     .then((body) => readDetail(body?.detail))
     .catch(() => null);
   const message = detail ?? `Request failed with status ${response.status}`;
-  return response.status === 401 ? new SignedOutError(message) : new Error(message);
+  if (response.status === 401) return new SignedOutError(message);
+  if (response.status === 404) return new NotFoundError(message);
+  return new Error(message);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

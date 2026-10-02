@@ -76,6 +76,10 @@ expire **one hour after the original upload**. Reading, previewing, and saving a
 recipe do not reset this deadline. Expired IDs return `404 Dataset not found.`
 Export your results with **Download CSV** before they expire.
 
+The open dataset's ID is kept in the page address (`?dataset=<id>`), so reloading the
+page, or logging back in after a session ends, reopens it while it lasts. An expired
+one is reported and taken out of the address. Logging out takes it out too.
+
 ## Walkthrough with the example data
 
 [example-data/orders-sample.csv](example-data/orders-sample.csv) is a 60-row synthetic
@@ -317,7 +321,7 @@ npm run build
 
 `npm test` runs the Vitest and React Testing Library interaction suite once;
 `npm run test:watch` reruns tests while editing. Tests cover file upload and its
-loading state, computed dashboard results, API errors and retry, and adding and
+loading state, computed dashboard results, reopening a dataset after a reload, API errors and retry, and adding and
 removing a recipe step with a preview. HTTP responses are mocked at the fetch
 boundary, and Plotly drawing is stubbed because jsdom has no canvas renderer.
 No running backend is needed. `typecheck` generates Next.js route types
