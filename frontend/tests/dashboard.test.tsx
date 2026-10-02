@@ -47,6 +47,7 @@ beforeEach(() => {
     requests.push({ path, init });
     if (path === "/api/auth/me") return json({ username: "ada" });
     if (path === "/api/upload") return json(profile);
+    if (path.endsWith("/profile")) return json(profile);
     if (path.endsWith("/charts")) return json({ dataset_id: profile.dataset_id, charts: [{
       id: "revenue-chart", chart_type: "histogram", title: "Revenue distribution",
       columns: ["revenue"], x_label: "Revenue", y_label: "Count",
@@ -151,6 +152,33 @@ test("adds a recipe step, previews its rows, and restores the original rows on r
   expect(screen.getByRole("button", { name: "Save as a dataset" })).toBeDisabled();
 });
 
+test("keeps the open dataset in the address", async () => {
+  await upload();
+  expect(await screen.findByText("sales.csv")).toBeVisible();
+  expect(new URLSearchParams(window.location.search).get("dataset")).toBe("sales-1");
+});
+
+test("reopens the dataset in the address after a reload, without uploading", async () => {
+  window.history.replaceState(null, "", "/?dataset=sales-1");
+  render(<Home />);
+  expect(await screen.findByText("sales.csv")).toBeVisible();
+  expect(screen.getByText("87")).toBeVisible();
+  expect(requests.some(({ path }) => path === "/api/datasets/sales-1/profile")).toBe(true);
+  expect(requests.some(({ path }) => path === "/api/upload")).toBe(false);
+});
+
+test("says when the dataset in the address has expired, and forgets it", async () => {
+  const handler = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/profile")
+    ? Promise.resolve(json({ detail: "Dataset not found." }, 404))
+    : handler(input, init));
+  window.history.replaceState(null, "", "/?dataset=gone");
+  render(<Home />);
+  expect(await screen.findByText(/That dataset has expired/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Choose file" })).toBeEnabled();
+  expect(window.location.search).toBe("");
+});
+
 function signedOut(offersGoogle = false, offersGitHub = false) {
   const handler = vi.mocked(fetch).getMockImplementation()!;
   vi.mocked(fetch).mockImplementation((input, init) => {
@@ -222,6 +250,7 @@ test("logging out returns to the log-in form and clears the dashboard", async ()
   await user.click(screen.getByRole("button", { name: "Log out" }));
   expect(await screen.findByLabelText("Username")).toBeInTheDocument();
   expect(screen.queryByText("sales.csv")).not.toBeInTheDocument();
+  expect(window.location.search).toBe("");
 });
 
 test("a session that ends mid-work goes back to logging in", async () => {
