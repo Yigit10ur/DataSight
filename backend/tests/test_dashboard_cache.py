@@ -9,6 +9,7 @@ from app.config import settings
 from app.dashboard import DashboardAnalysis, dashboard_cache
 from app.main import app
 from app.profiling import profile_dataset
+from app.provenance import Provenance
 from app.store import DatasetStore
 from tests.conftest import TEST_ACCOUNT
 
@@ -198,3 +199,43 @@ def test_result_finishing_after_expiration_is_not_cached(monkeypatch):
     )
     assert dataset_id not in dashboard_cache._entries
     assert dataset_id not in dashboard_cache._locks
+
+
+def small_dataset(name="small.csv"):
+    frame = pd.DataFrame({"value": [1, 2, 3]})
+    return frame, profile_dataset(name, name, frame)
+
+
+def test_a_failed_computation_leaves_no_lock_behind(monkeypatch):
+    frame, profile = small_dataset()
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("analysis broke")
+
+    monkeypatch.setattr(dashboard, "analyze_dataset", fail)
+    with pytest.raises(RuntimeError):
+        dashboard_cache.get_or_compute(
+            "broken", frame, profile, Provenance(), retain=lambda: True
+        )
+    assert "broken" not in dashboard_cache._locks
+    assert "broken" not in dashboard_cache._entries
+
+
+def test_a_discarded_result_leaves_no_lock_behind():
+    frame, profile = small_dataset()
+    dashboard_cache.get_or_compute(
+        "discarded", frame, profile, Provenance(), retain=lambda: False
+    )
+    assert "discarded" not in dashboard_cache._locks
+    assert "discarded" not in dashboard_cache._entries
+
+
+def test_a_kept_result_keeps_its_lock_until_evicted(monkeypatch):
+    monkeypatch.setattr(settings, "dashboard_cache_size", 1)
+    frame, profile = small_dataset()
+    provenance = Provenance()
+    dashboard_cache.get_or_compute("first", frame, profile, provenance, retain=lambda: True)
+    assert set(dashboard_cache._locks) == {"first"}
+
+    dashboard_cache.get_or_compute("second", frame, profile, provenance, retain=lambda: True)
+    assert set(dashboard_cache._locks) == set(dashboard_cache._entries) == {"second"}
